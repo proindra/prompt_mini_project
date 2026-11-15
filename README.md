@@ -135,6 +135,28 @@ pre-filled or claimed in advance.
 - `data/attention.pdf` is loaded alongside the configured URLs. The index is
   still in-memory and rebuilt on startup.
 
+## Novelty and project contribution
+
+The contribution is a **bounded, observable implementation** of self-corrective
+retrieval, not a claim that CRAG or query rewriting is a newly invented
+algorithm:
+
+- **A fixed correction budget:** each question gets one rewritten local retry
+  and, only if evidence is still insufficient, one web-search attempt.
+- **Evidence-gated answers:** initial, rewritten, and merged evidence are
+  graded; the system generates only when evidence is sufficient and otherwise
+  abstains.
+- **Failure-aware, inspectable routing:** each result exposes evidence grades,
+  correction steps, sources, citations, and measured retrieval and latency
+  metrics, including when web search fails.
+- **Evaluation matched to the architecture:** the versioned dataset reports
+  which route each question actually took, stage-level evidence sufficiency,
+  expected-action accuracy where specified, answer support, and answer quality.
+
+This makes the system's correction-versus-abstention behavior measurable. The
+evaluation reports observed outcomes; without a baseline comparison, it does
+not claim the approach outperforms other RAG systems.
+
 ### Run the command-line app instead
 
 ```powershell
