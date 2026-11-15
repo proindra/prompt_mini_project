@@ -59,6 +59,7 @@ class CRAGPipelineTests(unittest.TestCase):
         result = pipeline.run("question")
 
         self.assertFalse(result["abstained"])
+        self.assertEqual(result["pipeline"], "BUDGET_CONSTRAINED_CRAG")
         self.assertEqual(result["metrics"]["correction_count"], 0)
         self.assertEqual(result["metrics"]["web_search_calls"], 0)
         self.assertEqual(web_calls, [])

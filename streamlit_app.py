@@ -129,6 +129,13 @@ def render_crag_dashboard() -> None:
     result = st.session_state.get("latest_research_result")
     if not result:
         return
+    pipeline_name = result.get("pipeline")
+    if pipeline_name is None:
+        st.warning(
+            "This saved result is from an older pipeline version. Restart the Streamlit "
+            "server and submit the question again."
+        )
+        return
 
     st.markdown("### Answer")
     if result["abstained"]:
@@ -136,7 +143,7 @@ def render_crag_dashboard() -> None:
     else:
         st.success(result["answer"])
     st.caption(
-        f"Pipeline: {result['pipeline']} · "
+        f"Pipeline: {pipeline_name} · "
         f"Abstained: {'Yes' if result['abstained'] else 'No'}"
     )
 
