@@ -145,46 +145,93 @@ The CLI initializes the same RAG components, runs its example questions, and
 offers an interactive prompt. Type `quit`, `exit`, or `q` to leave interactive
 mode.
 
-## ReAct architecture
+## System architecture
 
 ```mermaid
 flowchart TD
-    Q[Question] --> G[LangGraph RAG workflow]
-    G --> R[Retriever node]
-    R -->|retrieve source documents| V[FAISS vector store]
-    R --> A[Responder node]
-    A --> AG[LangGraph ReAct agent]
-    AG -->|choose a tool| T{Available tools}
-    T -->|indexed source passages| RT[Retriever tool]
-    RT --> V
-    T -->|general knowledge| WT[Wikipedia HTTPS API tool]
-    RT --> AG
-    WT --> AG
-    AG -->|final response| A
-    A --> OUT[Answer and retrieved documents]
+    Q[User question] --> UI{App tab}
+
+    subgraph SharedIndex[Shared local-first document index]
+        SRC[Configured web pages and PDFs in data]
+        PROC[Load and split documents]
+        EMB[Local sentence-transformer embeddings]
+        V[(FAISS vector store)]
+        SRC --> PROC --> EMB --> V
+    end
+
+    UI -->|Document Search| OLD[Existing LangGraph RAG]
+    OLD --> OLDRET[Initial retrieval]
+    OLDRET --> AG[ReAct agent]
+    AG --> TOOL{Tools}
+    TOOL -->|Local passages| V
+    TOOL -->|Wikipedia lookup| WIKI[Wikipedia API]
+    V --> AG
+    WIKI --> AG
+    AG --> OLDOUT[Answer and retrieved sources]
+
+    UI -->|CRAG Research| POLICY{Selected policy}
+    POLICY -->|BASELINE_RAG| BASE[Initial local retrieval]
+    BASE --> V
+    V --> BASECHECK{Evidence retrieved?}
+    BASECHECK -->|Yes| GEN[Generate grounded answer]
+    BASECHECK -->|No| ABSTAIN[Abstain]
+
+    POLICY -->|STANDARD_CRAG or RATE_LIMITED_CRAG| RET1[Initial local retrieval]
+    RET1 --> V
+    V --> GRADE1[Evidence grader]
+    GRADE1 -->|Sufficient| GEN
+    GRADE1 -->|Insufficient| BUDGET{Correction budget}
+    BUDGET -->|Attempt 1: rewrite query| REWRITE[Rewrite query]
+    REWRITE --> RET2[Local retrieval again]
+    RET2 --> V
+    V --> GRADE2[Re-evaluate evidence]
+    GRADE2 -->|Sufficient| GEN
+    GRADE2 -->|Insufficient: STANDARD_CRAG| ABSTAIN
+    GRADE2 -->|Insufficient: RATE_LIMITED_CRAG, attempt 2| WEB[Web search]
+    WEB --> WIKI[Wikipedia API]
+    WIKI --> MERGE[Merge local and web evidence]
+    MERGE --> GRADE3[Validate merged evidence]
+    GRADE3 -->|Sufficient| GEN
+    GRADE3 -->|Insufficient or conflicting| ABSTAIN
+
+    GEN --> RESULT[Answer, citations, metrics, and trace]
+    ABSTAIN --> RESULT
+    RESULT --> DASH[CRAG research result dashboard]
+    UI -->|Evaluation tab| EVAL[Comparative evaluation dashboard]
 ```
 
-The request follows these steps:
+Both interfaces use the same in-memory FAISS index. The original
+**Document Search** path remains the LangGraph/ReAct workflow; the
+**CRAG Research** path applies one of the explicit policies shown above.
 
-1. **Load and split sources.** `DocumentProcessor` loads the configured web
-   pages and PDFs in `data/`, then splits document text into chunks (500
-   characters with 50 characters of overlap by default).
-2. **Embed and index.** `VectorStore` embeds the chunks using
-   `sentence-transformers/all-MiniLM-L6-v2` and creates a FAISS index in memory.
-3. **Run the outer graph.** `GraphBuilder` defines a LangGraph workflow with a
-   `retriever` node followed by a `responder` node. The retriever node fetches
-   relevant documents for the question and keeps them in the graph state.
-4. **Use the ReAct agent.** The responder runs a LangGraph prebuilt ReAct agent
-   with two tools:
-   - `retriever` searches the indexed corpus for passages relevant to a query.
-   - `wikipedia` searches Wikipedia and returns article extracts over HTTPS.
-5. **Return results.** The agent returns a final answer. The graph state also
-   contains the question and documents from the outer retriever node; the
-   Streamlit UI displays those documents as sources.
+### Research request flow
 
-The graph state is defined in `src/state/rag_state.py`. The graph and agent are
-implemented in `src/graph_builder/graph_builder.py` and
-`src/node/reactnode.py`. Model configuration is in `src/config/config.py`.
+1. **Build the shared index.** `DocumentProcessor` loads the configured web
+   pages and PDFs in `data/`, then splits text into chunks (500 characters
+   with 50 characters of overlap by default). `VectorStore` embeds the chunks
+   locally and builds the in-memory FAISS index.
+2. **Choose a policy.** `BASELINE_RAG` retrieves once and generates directly
+   from local evidence. `STANDARD_CRAG` and `RATE_LIMITED_CRAG` also grade
+   initial evidence with the configured Groq model.
+3. **Correct at most twice.** If the initial evidence is insufficient, CRAG
+   rewrites the query and retries local retrieval (attempt 1). Only
+   `RATE_LIMITED_CRAG` can then search Wikipedia (attempt 2). The initial
+   retrieval is not counted as a correction, and the counter is per question.
+4. **Validate and respond.** Local and external passages are merged and
+   graded. Sufficient evidence produces a grounded answer with numbered
+   citations; insufficient or contradictory evidence produces an abstention.
+   The response includes sources, routing trace, and measured timing/count
+   metrics.
+5. **Compare policies.** The Evaluation tab runs the same versioned question
+   set through all three policies and presents measured outcomes; it does not
+   display fabricated or pre-filled results.
+
+The original graph state and ReAct workflow are defined in
+`src/state/rag_state.py`, `src/graph_builder/graph_builder.py`, and
+`src/node/reactnode.py`. Research policies, evidence grading, traces, and
+evaluation metrics are implemented in `src/research/crag.py`; the shared
+Wikipedia adapter is in `src/research/web_search.py`. Model configuration is in
+`src/config/config.py`.
 
 The FAISS index is rebuilt when the app initializes; it is not persisted between
 process runs. Streamlit caches the initialized RAG graph and research pipeline
