@@ -149,24 +149,13 @@ through the strict pipeline, and offers an interactive prompt. Type `quit`,
 ```mermaid
 flowchart TD
     Q[User Question] --> RET1[Initial Local Retrieval]
-
-    subgraph SharedIndex[Shared local-first document index]
-        SRC[Configured web pages and PDFs in data]
-        PROC[Load and split documents]
-        EMB[Local sentence-transformer embeddings]
-        V[(FAISS vector store)]
-        SRC --> PROC --> EMB --> V
-    end
-
-    RET1 --> V
-    V --> GRADE1[Evidence Grader]
+    RET1 --> GRADE1[Evidence Grader]
     GRADE1 -->|Sufficient| GEN[Generate Grounded Answer]
     GRADE1 -->|Insufficient| BUDGET[Correction Budget: max 2]
     BUDGET --> ATTEMPT1[Attempt 1]
     ATTEMPT1 --> REWRITE[Rewrite Query]
     REWRITE --> RET2[Local Retrieval Again]
-    RET2 --> V
-    V --> GRADE2[Re-evaluate Evidence]
+    RET2 --> GRADE2[Re-evaluate Evidence]
     GRADE2 -->|Sufficient| GEN
     GRADE2 -->|Insufficient| ATTEMPT2[Attempt 2: Web Search]
     ATTEMPT2 --> MERGE[Merge and Validate Evidence]
