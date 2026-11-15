@@ -354,6 +354,8 @@ def evaluate_dataset(
     rows = []
     for case in cases:
         result = pipeline.run(case["question"])
+        trace = result["trace"]
+        trace_by_step = {entry["step"]: entry for entry in trace}
         if result["abstained"]:
             answer_supported = None
             judge_latency = 0.0
@@ -364,6 +366,8 @@ def evaluate_dataset(
             )
             judge_latency = time.perf_counter() - judge_started
         reference = case.get("expected_answer")
+        actual_action = "abstain" if result["abstained"] else "generate"
+        expected_action = case.get("expected_action")
         rows.append(
             {
                 "id": case["id"],
@@ -374,9 +378,31 @@ def evaluate_dataset(
                 "evidence_sufficiency": result["evidence_grade"]["sufficient"],
                 "token_f1": token_f1(result["answer"], reference) if reference else None,
                 "abstained": result["abstained"],
+                "expected_action": expected_action,
+                "actual_action": actual_action,
+                "action_correct": (
+                    actual_action == expected_action if expected_action is not None else None
+                ),
+                "route": [entry["step"] for entry in trace],
+                "initial_evidence_sufficient": trace_by_step["initial_retrieval"][
+                    "evidence_status"
+                ]
+                == "SUFFICIENT",
+                "rewrite_evidence_sufficient": (
+                    trace_by_step.get("local_retrieval_after_rewrite", {}).get(
+                        "evidence_status"
+                    )
+                    == "SUFFICIENT"
+                ),
+                "web_evidence_sufficient": (
+                    trace_by_step.get("final_evidence_evaluation", {}).get(
+                        "evidence_status"
+                    )
+                    == "SUFFICIENT"
+                ),
                 "metrics": result["metrics"],
                 "evaluation_judge_latency_seconds": judge_latency,
-                "trace": result["trace"],
+                "trace": trace,
             }
         )
     return {"summary": _summarize(rows), "details": rows}
@@ -386,11 +412,32 @@ def _summarize(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     count = len(rows)
     token_scores = [row["token_f1"] for row in rows if row["token_f1"] is not None]
     judged_answers = [row for row in rows if row["answer_supported"] is not None]
+    action_labeled = [row for row in rows if row["action_correct"] is not None]
     corrected = [row for row in rows if row["metrics"]["correction_count"] > 0]
     budget = CRAGPipeline._MAX_CORRECTIONS * count
+    route_counts: Dict[str, int] = {}
+    for row in rows:
+        route = " -> ".join(row["route"])
+        route_counts[route] = route_counts.get(route, 0) + 1
     return {
         "pipeline": "BUDGET_CONSTRAINED_CRAG",
         "total_questions": count,
+        "architecture_route_counts": route_counts,
+        "initial_evidence_sufficient_count": sum(
+            row["initial_evidence_sufficient"] for row in rows
+        ),
+        "rewrite_evidence_sufficient_count": sum(
+            row["rewrite_evidence_sufficient"] for row in rows
+        ),
+        "web_evidence_sufficient_count": sum(
+            row["web_evidence_sufficient"] for row in rows
+        ),
+        "expected_action_cases": len(action_labeled),
+        "expected_action_accuracy": (
+            mean(float(row["action_correct"]) for row in action_labeled)
+            if action_labeled
+            else None
+        ),
         "answer_correctness_token_f1": mean(token_scores) if token_scores else None,
         "evidence_support_rate": (
             mean(float(row["answer_supported"]) for row in judged_answers)

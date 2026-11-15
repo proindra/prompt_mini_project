@@ -193,6 +193,7 @@ class CRAGPipelineTests(unittest.TestCase):
                 "category": "local_answerable",
                 "question": "question",
                 "expected_answer": "Supported answer",
+                "expected_action": "generate",
             }
         ]
 
@@ -201,7 +202,45 @@ class CRAGPipelineTests(unittest.TestCase):
         self.assertEqual(results["summary"]["pipeline"], "BUDGET_CONSTRAINED_CRAG")
         self.assertEqual(results["summary"]["total_questions"], 1)
         self.assertEqual(results["summary"]["evidence_support_rate"], 1)
+        self.assertEqual(results["summary"]["expected_action_accuracy"], 1)
+        self.assertEqual(
+            results["summary"]["architecture_route_counts"],
+            {"initial_retrieval -> final": 1},
+        )
         self.assertEqual(len(results["details"]), 1)
+
+    def test_evaluation_reports_expected_abstention_route(self):
+        pipeline = CRAGPipeline(
+            FakeRetriever([]),
+            FakeLLM(),
+            web_search=lambda _query: [],
+        )
+        cases = [
+            {
+                "id": "unsupported",
+                "category": "insufficient_evidence",
+                "question": "unsupported question",
+                "expected_action": "abstain",
+            }
+        ]
+
+        results = evaluate_dataset(pipeline, cases)
+
+        row = results["details"][0]
+        self.assertEqual(row["actual_action"], "abstain")
+        self.assertTrue(row["action_correct"])
+        self.assertEqual(
+            row["route"],
+            [
+                "initial_retrieval",
+                "correction_attempt_1",
+                "local_retrieval_after_rewrite",
+                "correction_attempt_2",
+                "final_evidence_evaluation",
+                "final",
+            ],
+        )
+        self.assertEqual(results["summary"]["expected_action_accuracy"], 1)
 
 
 if __name__ == "__main__":

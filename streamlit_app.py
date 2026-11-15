@@ -255,7 +255,7 @@ def render_dataset_evaluation() -> None:
         hide_index=True,
     )
 
-    if st.button("Evaluate strict CRAG pipeline", key="run_evaluation"):
+    if st.button("Run versioned dataset evaluation", key="run_evaluation"):
         with st.spinner("Evaluating the dataset; this may take several minutes..."):
             st.session_state.evaluation_results = evaluate_dataset(
                 st.session_state.crag_pipeline, cases
@@ -267,11 +267,48 @@ def render_dataset_evaluation() -> None:
 
     summary = results["summary"]
     st.markdown("### Measured pipeline results")
-    st.dataframe([summary], use_container_width=True, hide_index=True)
+    st.dataframe(
+        [
+            {
+                key: value
+                for key, value in summary.items()
+                if key != "architecture_route_counts"
+            }
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
 
     import pandas as pd
 
     summary_frame = pd.DataFrame([summary]).set_index("pipeline")
+    st.markdown("### Architecture route outcomes")
+    st.dataframe(
+        [
+            {"route": route, "questions": count}
+            for route, count in summary["architecture_route_counts"].items()
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.dataframe(
+        [
+            {
+                "stage": "Initial retrieval sufficient",
+                "questions": summary["initial_evidence_sufficient_count"],
+            },
+            {
+                "stage": "Rewritten local retrieval sufficient",
+                "questions": summary["rewrite_evidence_sufficient_count"],
+            },
+            {
+                "stage": "Web-merged evidence sufficient",
+                "questions": summary["web_evidence_sufficient_count"],
+            },
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
     st.markdown("### Latency and answer quality")
     chart_columns = st.columns(2)
     with chart_columns[0]:
@@ -288,7 +325,12 @@ def render_dataset_evaluation() -> None:
     with chart_columns[1]:
         st.bar_chart(
             summary_frame[
-                ["answer_correctness_token_f1", "evidence_support_rate", "correction_success_rate"]
+                [
+                    "answer_correctness_token_f1",
+                    "evidence_support_rate",
+                    "expected_action_accuracy",
+                    "correction_success_rate",
+                ]
             ]
         )
     st.markdown("### Search and correction use")
@@ -300,9 +342,9 @@ def render_dataset_evaluation() -> None:
 
     st.caption(
         "Answer correctness is token F1 against dataset references. Evidence support is the "
-        "LLM judge's support decision among generated answers. Evaluation-judge latency is "
-        "reported separately from pipeline latency. Results are generated live and are not "
-        "pre-populated."
+        "LLM judge's support decision among generated answers. Expected-action accuracy is "
+        "reported only for cases with an expected action. Evaluation-judge latency is reported "
+        "separately from pipeline latency. Results are generated live and are not pre-populated."
     )
     export = json.dumps(results, ensure_ascii=False, indent=2)
     st.download_button(

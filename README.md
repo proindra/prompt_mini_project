@@ -106,9 +106,10 @@ The **Run versioned dataset evaluation** expander runs
 `data/evaluation_dataset.json` through the same strict pipeline. This makes
 live Groq calls (and may make Wikipedia calls). It displays answer token F1
 when a reference answer is supplied, LLM-judged answer support, evidence
-sufficiency, retrieval and web-call counts, correction use, latency,
-abstention, and correction success. Results can be downloaded as JSON. No
-evaluation scores are pre-filled or claimed in advance.
+sufficiency, expected-action accuracy, architecture route counts, retrieval
+and web-call counts, correction use, latency, abstention, and correction
+success. Results can be downloaded as JSON. No evaluation scores are
+pre-filled or claimed in advance.
 
 ### Strict CRAG methodology
 
