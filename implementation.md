@@ -15,11 +15,14 @@ evaluation functionality.
 
 ## Research Contribution
 
-Implement and evaluate a rate-limited corrective retrieval policy.
+Implement and evaluate the fixed budget-constrained self-corrective retrieval
+pipeline.
 
 Research question:
 
-Can a maximum of two corrective retrieval attempts reduce retrieval overhead and response latency while maintaining answer quality and evidence support?
+What answer quality and evidence support does the fixed two-attempt retrieval
+pipeline achieve, and what retrieval overhead and response latency does it
+incur?
 
 The correction budget is:
 
@@ -46,7 +49,7 @@ Use existing models and infrastructure wherever possible.
 
 Do not treat vector similarity as factual correctness.
 
-### 2. Rate-Limited CRAG Pipeline
+### 2. Budget-Constrained Self-Corrective Pipeline
 
 Implement:
 
@@ -71,26 +74,12 @@ Ensure the correction counter is maintained independently for each question.
 
 Expose the complete correction trace in the backend response.
 
-### 3. Comparative Evaluation
+### 3. Strict Pipeline Evaluation
 
-Implement three selectable evaluation policies:
-
-A. BASELINE_RAG
-- Initial retrieval.
-- Direct generation.
-
-B. STANDARD_CRAG
-- Initial retrieval.
-- Evidence evaluation.
-- One corrective action if retrieval is insufficient.
-
-C. RATE_LIMITED_CRAG
-- Initial retrieval.
-- Query rewrite and local re-retrieval.
-- Web fallback if needed.
-- Maximum two corrective attempts.
-
-Use identical questions, corpus, model configuration, and evaluation settings for fair comparison.
+Evaluate the single required two-attempt CRAG pipeline on a fixed dataset.
+Record answer quality, evidence support, retrieval overhead, latency,
+abstention, and correction success. Do not expose baseline or alternate
+answering policies in the application.
 
 ### 4. Evaluation Metrics
 
@@ -132,7 +121,7 @@ Extend the existing Streamlit frontend.
 Add a CRAG research dashboard containing:
 
 - Question input.
-- Policy selection.
+- The fixed two-correction pipeline indicator.
 - Final generated answer.
 - Retrieved local evidence.
 - External web evidence when used.
@@ -145,11 +134,8 @@ Add a CRAG research dashboard containing:
 - Retrieval and web search counts.
 - Abstention indicator.
 
-Add an evaluation page displaying comparative results for:
-
-- Baseline RAG.
-- Standard CRAG.
-- Rate-Limited CRAG.
+Add an evaluation page displaying measured results for the strict CRAG
+pipeline.
 
 Use tables and charts for latency, answer quality, search calls, and correction success.
 
@@ -191,8 +177,8 @@ Adapt the actual schema to the existing application.
 - Avoid introducing unnecessary paid APIs.
 - Use existing LLM integration wherever possible.
 - If web search requires an API key, implement a configurable provider and clearly document setup.
-- Route all question answering through the CRAG pipeline; keep the three
-  research policies selectable within that pipeline.
+- Route all question answering through the strict two-correction CRAG pipeline.
+- Do not include an old RAG path or alternate answering policy.
 
 ## Execution Instructions
 
@@ -203,7 +189,7 @@ Work incrementally:
 3. Provide a concise implementation plan.
 4. Implement backend correction pipeline.
 5. Implement correction budget enforcement.
-6. Implement policy comparison.
+6. Implement strict-pipeline evaluation.
 7. Implement evaluation dataset and metrics.
 8. Implement frontend research dashboard.
 9. Add tests.

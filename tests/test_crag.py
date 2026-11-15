@@ -3,7 +3,7 @@ import unittest
 
 from langchain_core.documents import Document
 
-from src.research.crag import CRAGPipeline, Policy, evaluate_policies, token_f1
+from src.research.crag import CRAGPipeline, evaluate_dataset, token_f1
 
 
 def grade(sufficient, *, contradictory=False, relevant=True, answer_supported=True):
@@ -48,7 +48,7 @@ class FakeRetriever:
 
 
 class CRAGPipelineTests(unittest.TestCase):
-    def test_rate_limited_policy_stops_after_two_corrections(self):
+    def test_pipeline_stops_after_two_corrections(self):
         retriever = FakeRetriever()
         web_calls = []
         pipeline = CRAGPipeline(
@@ -59,7 +59,7 @@ class CRAGPipelineTests(unittest.TestCase):
             ),
         )
 
-        result = pipeline.run("question", Policy.RATE_LIMITED_CRAG)
+        result = pipeline.run("question")
 
         self.assertEqual(result["metrics"]["correction_count"], 2)
         self.assertEqual(result["metrics"]["retrieval_attempts"], 2)
@@ -68,24 +68,7 @@ class CRAGPipelineTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["correction_budget_utilization"], 1)
         self.assertFalse(result["abstained"])
 
-    def test_standard_policy_uses_one_correction_and_never_searches_web(self):
-        retriever = FakeRetriever()
-        pipeline = CRAGPipeline(
-            retriever,
-            FakeLLM([False, False]),
-            web_search=lambda query: self.fail(
-                f"STANDARD_CRAG must not search the web: {query}"
-            ),
-        )
-
-        result = pipeline.run("question", Policy.STANDARD_CRAG)
-
-        self.assertEqual(result["metrics"]["correction_count"], 1)
-        self.assertEqual(result["metrics"]["retrieval_attempts"], 2)
-        self.assertEqual(result["metrics"]["web_search_calls"], 0)
-        self.assertTrue(result["abstained"])
-
-    def test_rate_limited_policy_abstains_when_web_search_fails(self):
+    def test_pipeline_abstains_when_web_search_fails(self):
         retriever = FakeRetriever()
 
         def fail_search(_query):
@@ -99,24 +82,14 @@ class CRAGPipelineTests(unittest.TestCase):
             web_search=fail_search,
         )
 
-        result = pipeline.run("question", Policy.RATE_LIMITED_CRAG)
+        result = pipeline.run("question")
 
         self.assertTrue(result["abstained"])
         self.assertEqual(result["metrics"]["correction_count"], 2)
         self.assertEqual(result["metrics"]["web_search_calls"], 1)
         self.assertEqual(result["trace"][-2]["evidence_status"], "UNAVAILABLE")
 
-    def test_empty_baseline_retrieval_abstains_without_generation(self):
-        retriever = FakeRetriever([])
-        pipeline = CRAGPipeline(retriever, FakeLLM())
-
-        result = pipeline.run("question", Policy.BASELINE_RAG)
-
-        self.assertTrue(result["abstained"])
-        self.assertEqual(result["metrics"]["retrieval_attempts"], 1)
-        self.assertEqual(result["metrics"]["generation_latency_seconds"], 0)
-
-    def test_empty_evidence_cannot_be_graded_as_sufficient(self):
+    def test_empty_evidence_runs_both_attempts_then_abstains(self):
         pipeline = CRAGPipeline(
             FakeRetriever([]),
             FakeLLM(),
@@ -125,11 +98,14 @@ class CRAGPipelineTests(unittest.TestCase):
             ),
         )
 
-        result = pipeline.run("question", Policy.RATE_LIMITED_CRAG)
+        result = pipeline.run("question")
 
         self.assertTrue(result["abstained"])
         self.assertEqual(result["evidence_grade"]["status"], "INSUFFICIENT")
         self.assertEqual(result["metrics"]["correction_count"], 2)
+        self.assertEqual(result["metrics"]["retrieval_attempts"], 2)
+        self.assertEqual(result["metrics"]["web_search_calls"], 1)
+        self.assertEqual(result["metrics"]["generation_latency_seconds"], 0)
 
     def test_conflicting_evidence_is_never_sufficient(self):
         pipeline = CRAGPipeline(
@@ -150,8 +126,8 @@ class CRAGPipelineTests(unittest.TestCase):
             web_search=lambda query: self.fail(f"No web search expected: {query}"),
         )
 
-        first = pipeline.run("first", Policy.RATE_LIMITED_CRAG)
-        second = pipeline.run("second", Policy.RATE_LIMITED_CRAG)
+        first = pipeline.run("first")
+        second = pipeline.run("second")
 
         self.assertEqual(first["metrics"]["correction_count"], 1)
         self.assertEqual(second["metrics"]["correction_count"], 1)
@@ -160,10 +136,10 @@ class CRAGPipelineTests(unittest.TestCase):
         self.assertGreater(token_f1("Transformer uses attention", "The Transformer uses attention only"), 0)
         self.assertEqual(token_f1("", "reference"), 0)
 
-    def test_evaluation_records_all_policies_and_support_metrics(self):
+    def test_evaluation_records_strict_pipeline_metrics(self):
         pipeline = CRAGPipeline(
             FakeRetriever(),
-            FakeLLM([True, True, True, True, True]),
+            FakeLLM([True, True]),
         )
         cases = [
             {
@@ -174,13 +150,12 @@ class CRAGPipelineTests(unittest.TestCase):
             }
         ]
 
-        results = evaluate_policies(pipeline, cases)
+        results = evaluate_dataset(pipeline, cases)
 
-        self.assertEqual(set(results), {policy.value for policy in Policy})
-        for policy_result in results.values():
-            self.assertEqual(policy_result["summary"]["total_questions"], 1)
-            self.assertEqual(policy_result["summary"]["evidence_support_rate"], 1)
-            self.assertEqual(len(policy_result["details"]), 1)
+        self.assertEqual(results["summary"]["pipeline"], "BUDGET_CONSTRAINED_CRAG")
+        self.assertEqual(results["summary"]["total_questions"], 1)
+        self.assertEqual(results["summary"]["evidence_support_rate"], 1)
+        self.assertEqual(len(results["details"]), 1)
 
 
 if __name__ == "__main__":

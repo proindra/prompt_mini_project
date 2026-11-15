@@ -10,25 +10,23 @@ sys.path.append(str(Path(__file__).parent))
 from src.config.config import Config
 from src.document_ingestion.document_processor import DocumentProcessor
 from src.vectorstore.vectorstore import VectorStore
-from src.research.crag import CRAGPipeline, Policy
+from src.research.crag import CRAGPipeline
 
 
 class BudgetConstrainedRAG:
     """Command-line interface for the CRAG application."""
 
-    def __init__(self, urls=None, policy: Policy = Policy.RATE_LIMITED_CRAG):
+    def __init__(self, urls=None):
         """
         Initialize the retrieval pipeline.
         
         Args:
             urls: List of URLs to process (uses defaults if None)
-            policy: Retrieval policy used for each question
         """
-        print("🚀 Initializing Budget-Constrained Self-Corrective RAG...")
+        print("🚀 Initializing the strict two-attempt CRAG pipeline...")
         
         # Use default URLs if none provided
         self.urls = urls or Config.DEFAULT_URLS
-        self.policy = Policy(policy)
         
         # Initialize components
         self.llm = Config.get_llm()
@@ -70,7 +68,7 @@ class BudgetConstrainedRAG:
         print(f"❓ Question: {question}\n")
         print("🤔 Processing...")
         
-        result = self.pipeline.run(question, self.policy)
+        result = self.pipeline.run(question)
         answer = result["answer"]
         
         print(f"✅ Answer: {answer}")

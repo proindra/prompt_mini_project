@@ -12,8 +12,7 @@ from src.config.config import Config
 from src.document_ingestion.document_processor import DocumentProcessor
 from src.research.crag import (
     CRAGPipeline,
-    Policy,
-    evaluate_policies,
+    evaluate_dataset,
     load_evaluation_dataset,
 )
 from src.vectorstore.vectorstore import VectorStore
@@ -100,27 +99,19 @@ def show_documents(documents, citation_documents=None) -> None:
 def render_crag_dashboard() -> None:
     st.subheader("Budget-Constrained CRAG")
     st.caption(
-        "Each submitted question has an independent correction counter. "
-        "The rate-limited policy allows one local query rewrite and one web search."
-    )
-    policies = [item.value for item in Policy]
-    rate_limited_index = policies.index(Policy.RATE_LIMITED_CRAG.value)
-    policy = st.selectbox(
-        "Retrieval policy",
-        policies,
-        index=rate_limited_index,
-        key="research_policy",
+        "Every question follows the same strict path: initial local retrieval and grading, "
+        "one rewritten local retry, then one web-search fallback if needed."
     )
     with st.form("research_form"):
         question = st.text_input(
-            "Research question",
+            "User question",
             placeholder="Ask a question about the indexed documents or a general topic",
         )
-        submitted = st.form_submit_button("Run policy")
+        submitted = st.form_submit_button("Submit question")
 
     if submitted and question.strip():
-        with st.spinner(f"Running {policy}..."):
-            result = st.session_state.crag_pipeline.run(question, Policy(policy))
+        with st.spinner("Running the two-attempt CRAG pipeline..."):
+            result = st.session_state.crag_pipeline.run(question)
         st.session_state.latest_research_result = result
 
     result = st.session_state.get("latest_research_result")
@@ -132,7 +123,10 @@ def render_crag_dashboard() -> None:
         st.warning(result["answer"])
     else:
         st.success(result["answer"])
-    st.caption(f"Policy: {result['policy']} · Abstained: {'Yes' if result['abstained'] else 'No'}")
+    st.caption(
+        f"Pipeline: {result['pipeline']} · "
+        f"Abstained: {'Yes' if result['abstained'] else 'No'}"
+    )
 
     metrics = result["metrics"]
     columns = st.columns(5)
@@ -143,11 +137,8 @@ def render_crag_dashboard() -> None:
     columns[4].metric("Budget used", f"{metrics['correction_budget_utilization']:.0%}")
 
     grade = result["evidence_grade"]
-    if grade:
-        st.markdown("**Final evidence grading:** " + grade["status"])
-        st.caption(grade["rationale"])
-    else:
-        st.markdown("**Final evidence grading:** Not evaluated by BASELINE_RAG")
+    st.markdown("**Final evidence grading:** " + grade["status"])
+    st.caption(grade["rationale"])
 
     st.markdown("### Evidence")
     evidence_columns = st.columns(2)
@@ -169,12 +160,12 @@ def render_crag_dashboard() -> None:
 
 
 def render_evaluation() -> None:
-    st.subheader("Comparative Evaluation")
+    st.subheader("Evaluation Dashboard")
     dataset_path = Path(__file__).parent / "data" / "evaluation_dataset.json"
     cases = load_evaluation_dataset(str(dataset_path))
     st.caption(
-        f"Dataset: {len(cases)} questions. Runs all three policies and an additional "
-        "answer-support judge for each result; this makes live LLM calls."
+        f"Dataset: {len(cases)} questions. Runs the strict two-correction pipeline and "
+        "an answer-support judge; this makes live LLM calls."
     )
     st.dataframe(
         [{"id": case["id"], "category": case["category"], "question": case["question"]} for case in cases],
@@ -182,9 +173,9 @@ def render_evaluation() -> None:
         hide_index=True,
     )
 
-    if st.button("Run comparative evaluation", key="run_evaluation"):
-        with st.spinner("Evaluating all policies; this may take several minutes..."):
-            st.session_state.evaluation_results = evaluate_policies(
+    if st.button("Evaluate strict CRAG pipeline", key="run_evaluation"):
+        with st.spinner("Evaluating the dataset; this may take several minutes..."):
+            st.session_state.evaluation_results = evaluate_dataset(
                 st.session_state.crag_pipeline, cases
             )
 
@@ -192,13 +183,13 @@ def render_evaluation() -> None:
     if not results:
         return
 
-    summaries = [value["summary"] for value in results.values()]
-    st.markdown("### Measured policy results")
-    st.dataframe(summaries, use_container_width=True, hide_index=True)
+    summary = results["summary"]
+    st.markdown("### Measured pipeline results")
+    st.dataframe([summary], use_container_width=True, hide_index=True)
 
     import pandas as pd
 
-    summary_frame = pd.DataFrame(summaries).set_index("policy")
+    summary_frame = pd.DataFrame([summary]).set_index("pipeline")
     st.markdown("### Latency and answer quality")
     chart_columns = st.columns(2)
     with chart_columns[0]:
@@ -240,16 +231,14 @@ def render_evaluation() -> None:
     )
 
     with st.expander("Per-question results and traces"):
-        for policy_name, value in results.items():
-            st.markdown(f"**{policy_name}**")
-            st.dataframe(value["details"], use_container_width=True, hide_index=True)
+        st.dataframe(results["details"], use_container_width=True, hide_index=True)
 
 
 def main() -> None:
     init_session_state()
     st.title("Budget-Constrained Self-Corrective RAG")
     st.markdown(
-        "Document-grounded answers with failure-aware, rate-limited corrective retrieval."
+        "Document-grounded answers with budget-constrained self-corrective retrieval."
     )
 
     if not st.session_state.initialized:

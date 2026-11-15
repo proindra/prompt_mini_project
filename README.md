@@ -27,11 +27,11 @@ All question answering uses the CRAG pipeline.
   OpenAI API key or a hosted embedding API.
 - **FAISS retrieval:** creates an in-memory vector index from processed
   document chunks.
-- **Three selectable policies:** compare `BASELINE_RAG`, `STANDARD_CRAG`, and
-  `RATE_LIMITED_CRAG`.
-- **Failure-aware routing:** grade evidence, rewrite the query for one local
-  retry, use Wikipedia as the second correction, and abstain if evidence is
-  insufficient or contradictory.
+- **One strict retrieval path:** every question is graded, locally retried once
+  with a rewritten query, then sent to Wikipedia as the final correction if
+  needed.
+- **Evidence-safe responses:** generate with citations only when merged
+  evidence is sufficient; otherwise abstain.
 - **Two ways to run:** a Streamlit interface or the command-line application.
 
 Groq chat completions and source downloads require an internet connection. On
@@ -97,42 +97,42 @@ uv run streamlit run streamlit_app.py
 
 Open the local URL printed by Streamlit (usually `http://localhost:8501`). The
 first initialization may take longer while the embedding model is downloaded
-and the document index is built. Ask a question in the search box; the app
-shows the answer and retrieved source passages.
+and the document index is built. Submit a question in the Ask a Question tab;
+the app shows the answer, evidence, and correction trace.
 
-The **Ask a Question** tab uses the CRAG pipeline (defaulting to
-`RATE_LIMITED_CRAG`) and shows policy selection, evidence grades, local and web
-sources, query-rewrite history, routing trace, correction count, and timing.
+The **Ask a Question** tab always runs the strict CRAG pipeline and shows
+evidence grades, local and web sources, query-rewrite history, routing trace,
+correction count, and timing.
 
 The **Evaluation** tab runs the versioned sample dataset in
-`data/evaluation_dataset.json` against all three policies. This makes live Groq
-calls (and may make Wikipedia calls). It displays answer token F1 when a
-reference answer is supplied, LLM-judged answer support, evidence sufficiency,
-retrieval and web-call counts, correction use, latency, abstention, and
-correction success. Results can be downloaded as JSON. No evaluation scores
-are pre-filled or claimed in advance.
+`data/evaluation_dataset.json` through the same strict CRAG pipeline. This
+makes live Groq calls (and may make Wikipedia calls). It displays answer token
+F1 when a reference answer is supplied, LLM-judged answer support, evidence
+sufficiency, retrieval and web-call counts, correction use, latency,
+abstention, and correction success. Results can be downloaded as JSON. No
+evaluation scores are pre-filled or claimed in advance.
 
-### Research methodology
+### Strict CRAG methodology
 
-- `BASELINE_RAG` retrieves once and generates directly from local evidence.
-- `STANDARD_CRAG` grades the initial evidence and may rewrite the query and
-  retrieve locally once.
-- `RATE_LIMITED_CRAG` grades initial evidence, allows one rewritten local
-  retrieval, and uses Wikipedia as the second and final corrective attempt.
-  It abstains if evidence is still insufficient or contradictory.
-- Correction counters are local to each `run` call. Initial retrieval does
-  not count as a correction; corrective retrieval is bounded by the selected
-  policy.
+- Every question starts with local retrieval and an LLM evidence grade.
+- If insufficient, attempt 1 rewrites the original question and retries local
+  retrieval; evidence is graded again.
+- If still insufficient, attempt 2 searches Wikipedia, merges external and
+  local evidence, and grades the combined evidence.
+- The initial retrieval is not counted as a correction. The per-question
+  correction counter has a hard maximum of two.
+- Sufficient evidence generates a grounded answer with citations. Insufficient
+  or contradictory evidence, including web-search failure, produces abstention.
 - Grading uses the configured Groq model and the evidence text; vector
   similarity is only used to retrieve candidate passages, not to decide
   whether evidence is factually sufficient.
 - Dataset categories describe intended challenge cases, not guaranteed
   routing outcomes. Retrieval, model responses, and Wikipedia results can vary.
-  The dashboard reports observed results rather than asserting improvements.
+  The dashboard reports measured results rather than asserting improvements.
 - Answer correctness is token-level F1 against the included reference answers.
   Evidence support is a separate LLM judgment of whether the answer is
   supported by its retrieved passages. The support-judge latency is reported
-  separately from policy latency.
+  separately from pipeline latency.
 - `data/attention.pdf` is loaded alongside the configured URLs. The index is
   still in-memory and rebuilt on startup.
 
@@ -142,9 +142,9 @@ are pre-filled or claimed in advance.
 uv run python main.py
 ```
 
-The CLI initializes the same CRAG components, runs its example questions with
-`RATE_LIMITED_CRAG`, and offers an interactive prompt. Type `quit`, `exit`, or
-`q` to leave interactive mode.
+The CLI initializes the same CRAG components, runs its example questions
+through the strict pipeline, and offers an interactive prompt. Type `quit`,
+`exit`, or `q` to leave interactive mode.
 
 ## System architecture
 
@@ -160,27 +160,20 @@ flowchart TD
         SRC --> PROC --> EMB --> V
     end
 
-    UI -->|Ask a Question| POLICY{Selected policy}
-    POLICY -->|BASELINE_RAG| BASE[Initial local retrieval]
-    BASE --> V
-    V --> BASECHECK{Evidence retrieved?}
-    BASECHECK -->|Yes| GEN[Generate grounded answer]
-    BASECHECK -->|No| ABSTAIN[Abstain]
-
-    POLICY -->|STANDARD_CRAG or RATE_LIMITED_CRAG| RET1[Initial local retrieval]
+    UI -->|Ask a Question| RET1[Initial local retrieval]
     RET1 --> V
     V --> GRADE1[Evidence grader]
-    GRADE1 -->|Sufficient| GEN
-    GRADE1 -->|Insufficient| BUDGET{Correction budget}
-    BUDGET -->|Attempt 1: rewrite query| REWRITE[Rewrite query]
+    GRADE1 -->|Sufficient| GEN[Generate grounded answer]
+    GRADE1 -->|Insufficient| BUDGET[Correction budget: max 2]
+    BUDGET --> ATTEMPT1[Attempt 1]
+    ATTEMPT1 --> REWRITE[Rewrite query]
     REWRITE --> RET2[Local retrieval again]
     RET2 --> V
     V --> GRADE2[Re-evaluate evidence]
     GRADE2 -->|Sufficient| GEN
-    GRADE2 -->|Insufficient: STANDARD_CRAG| ABSTAIN
-    GRADE2 -->|Insufficient: RATE_LIMITED_CRAG, attempt 2| WEB[Web search]
-    WEB --> WIKI[Wikipedia API]
-    WIKI --> MERGE[Merge local and web evidence]
+    GRADE2 -->|Insufficient| ATTEMPT2[Attempt 2: web search]
+    ATTEMPT2 --> WEB[Wikipedia API]
+    WEB --> MERGE[Merge local and web evidence]
     MERGE --> GRADE3[Validate merged evidence]
     GRADE3 -->|Sufficient| GEN
     GRADE3 -->|Insufficient or conflicting| ABSTAIN
@@ -188,12 +181,11 @@ flowchart TD
     GEN --> RESULT[Answer, citations, metrics, and trace]
     ABSTAIN --> RESULT
     RESULT --> DASH[Answer, citations, trace, and metrics]
-    UI -->|Evaluation tab| EVAL[Comparative evaluation dashboard]
+    UI -->|Evaluation tab| EVAL[Evaluation dashboard]
 ```
 
-The Streamlit app and CLI both use the same CRAG pipeline and in-memory FAISS
-index. The app exposes the question-answering and comparative-evaluation
-dashboards.
+The Streamlit app and CLI both use the same strict CRAG pipeline and in-memory
+FAISS index. The app exposes the question-answering and evaluation dashboards.
 
 ### Research request flow
 
@@ -201,26 +193,26 @@ dashboards.
    pages and PDFs in `data/`, then splits text into chunks (500 characters
    with 50 characters of overlap by default). `VectorStore` embeds the chunks
    locally and builds the in-memory FAISS index.
-2. **Choose a policy.** `BASELINE_RAG` retrieves once and generates directly
-   from local evidence. `STANDARD_CRAG` and `RATE_LIMITED_CRAG` also grade
-   initial evidence with the configured Groq model.
-3. **Correct at most twice.** If the initial evidence is insufficient, CRAG
-   rewrites the query and retries local retrieval (attempt 1). Only
-   `RATE_LIMITED_CRAG` can then search Wikipedia (attempt 2). The initial
-   retrieval is not counted as a correction, and the counter is per question.
+2. **Grade initial evidence.** The configured Groq model evaluates whether the
+   local passages are relevant, sufficient, or contradictory.
+3. **Correct at most twice.** If initial evidence is insufficient, CRAG rewrites
+   the query and retries local retrieval (attempt 1). If it remains
+   insufficient, it searches Wikipedia (attempt 2). The initial retrieval is
+   not counted as a correction, and the counter is per question.
 4. **Validate and respond.** Local and external passages are merged and
    graded. Sufficient evidence produces a grounded answer with numbered
    citations; insufficient or contradictory evidence produces an abstention.
    The response includes sources, routing trace, and measured timing/count
    metrics.
-5. **Compare policies.** The Evaluation tab runs the same versioned question
-   set through all three policies and presents measured outcomes; it does not
-   display fabricated or pre-filled results.
+5. **Evaluate the pipeline.** The Evaluation tab runs the versioned question
+   set through this same strict pipeline and presents measured outcomes; it
+   does not display fabricated or pre-filled results.
 
 The CLI entry point is `main.py`. Streamlit setup and dashboards are in
-`streamlit_app.py`. Policies, evidence grading, traces, and evaluation metrics
-are implemented in `src/research/crag.py`; the Wikipedia adapter is in
-`src/research/web_search.py`. Model configuration is in `src/config/config.py`.
+`streamlit_app.py`. The strict retrieval flow, evidence grading, traces, and
+evaluation metrics are implemented in `src/research/crag.py`; the Wikipedia
+adapter is in `src/research/web_search.py`. Model configuration is in
+`src/config/config.py`.
 
 The FAISS index is rebuilt when the app initializes; it is not persisted between
 process runs. Streamlit caches the CRAG pipeline and vector index for the

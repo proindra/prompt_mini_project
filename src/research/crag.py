@@ -1,9 +1,8 @@
-"""Budget-constrained corrective retrieval policies."""
+"""Budget-constrained self-corrective retrieval pipeline."""
 
 import json
 import re
 import time
-from enum import Enum
 from statistics import mean
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
@@ -13,20 +12,10 @@ from langchain_core.documents import Document
 from src.research.web_search import search_wikipedia
 
 
-class Policy(str, Enum):
-    BASELINE_RAG = "BASELINE_RAG"
-    STANDARD_CRAG = "STANDARD_CRAG"
-    RATE_LIMITED_CRAG = "RATE_LIMITED_CRAG"
-
-
 class CRAGPipeline:
-    """Run one of three RAG policies against an existing retriever and LLM."""
+    """Run the strict two-correction retrieval path against a retriever and LLM."""
 
-    _MAX_CORRECTIONS = {
-        Policy.BASELINE_RAG: 0,
-        Policy.STANDARD_CRAG: 1,
-        Policy.RATE_LIMITED_CRAG: 2,
-    }
+    _MAX_CORRECTIONS = 2
 
     def __init__(
         self,
@@ -38,17 +27,16 @@ class CRAGPipeline:
         self.llm = llm
         self.web_search = web_search
 
-    def run(self, question: str, policy: Policy = Policy.RATE_LIMITED_CRAG) -> Dict[str, Any]:
+    def run(self, question: str) -> Dict[str, Any]:
         """Answer a question and return evidence, metrics, and an explainability trace."""
         if not question.strip():
             raise ValueError("Question must not be empty.")
-        policy = Policy(policy)
         started = time.perf_counter()
         metrics = {
             "retrieval_attempts": 0,
             "web_search_calls": 0,
             "correction_count": 0,
-            "correction_budget": self._MAX_CORRECTIONS[policy],
+            "correction_budget": self._MAX_CORRECTIONS,
             "retrieval_latency_seconds": 0.0,
             "web_search_latency_seconds": 0.0,
             "generation_latency_seconds": 0.0,
@@ -58,43 +46,22 @@ class CRAGPipeline:
         initial_docs = self._retrieve(question, metrics)
         local_docs = list(initial_docs)
         web_docs: List[Document] = []
-        grade: Optional[Dict[str, Any]] = None
+        grade = self.grade_evidence(question, initial_docs)
+        trace.append(self._grade_trace("initial_retrieval", grade, len(initial_docs)))
+        sufficient = grade["sufficient"]
 
-        if policy == Policy.BASELINE_RAG:
-            status = "NOT_EVALUATED" if initial_docs else "INSUFFICIENT"
-            trace.append(
-                {
-                    "step": "initial_retrieval",
-                    "evidence_status": status,
-                    "document_count": len(initial_docs),
-                    "action": "GENERATE" if initial_docs else "ABSTAIN",
-                }
-            )
-            sufficient = bool(initial_docs)
-        else:
-            grade = self.grade_evidence(question, initial_docs)
-            trace.append(self._grade_trace("initial_retrieval", grade, len(initial_docs)))
-            sufficient = grade["sufficient"]
-
-        if not sufficient and policy == Policy.STANDARD_CRAG:
+        if not sufficient:
             self._rewrite_and_retrieve(question, query_history, local_docs, metrics, trace)
             grade = self.grade_evidence(question, local_docs)
             trace.append(self._grade_trace("local_retrieval_after_rewrite", grade, len(local_docs)))
             sufficient = grade["sufficient"]
 
-        if not sufficient and policy == Policy.RATE_LIMITED_CRAG:
-            self._rewrite_and_retrieve(question, query_history, local_docs, metrics, trace)
-            grade = self.grade_evidence(question, local_docs)
-            trace.append(self._grade_trace("local_retrieval_after_rewrite", grade, len(local_docs)))
-            sufficient = grade["sufficient"]
-
-            if not sufficient and metrics["correction_count"] < metrics["correction_budget"]:
-                rewritten_query = query_history[-1]
+            if not sufficient and metrics["correction_count"] < self._MAX_CORRECTIONS:
                 metrics["correction_count"] += 1
                 metrics["web_search_calls"] += 1
                 web_started = time.perf_counter()
                 try:
-                    web_docs = self.web_search(rewritten_query)
+                    web_docs = self.web_search(query_history[-1])
                 except requests.RequestException as exc:
                     trace.append(
                         {
@@ -153,7 +120,7 @@ class CRAGPipeline:
 
         return {
             "question": question,
-            "policy": policy.value,
+            "pipeline": "BUDGET_CONSTRAINED_CRAG",
             "answer": answer,
             "abstained": action == "ABSTAIN",
             "retrieved_docs": evidence_docs,
@@ -381,59 +348,49 @@ def token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall) if overlap else 0.0
 
 
-def evaluate_policies(
+def evaluate_dataset(
     pipeline: CRAGPipeline, cases: Sequence[Dict[str, Any]]
-) -> Dict[str, Dict[str, Any]]:
-    """Run the same dataset through each policy and return per-policy metrics and rows."""
-    policy_results = {}
-    for policy in Policy:
-        rows = []
-        for case in cases:
-            result = pipeline.run(case["question"], policy)
-            if result["abstained"]:
-                answer_supported = None
-                judge_latency = 0.0
-            else:
-                judge_started = time.perf_counter()
-                answer_supported = pipeline.grade_answer_support(
-                    case["question"], result["answer"], result["retrieved_docs"]
-                )
-                judge_latency = time.perf_counter() - judge_started
-            reference = case.get("expected_answer")
-            rows.append(
-                {
-                    "id": case["id"],
-                    "category": case["category"],
-                    "question": case["question"],
-                    "answer": result["answer"],
-                    "answer_supported": answer_supported,
-                    "evidence_sufficiency": (
-                        result["evidence_grade"]["sufficient"]
-                        if result["evidence_grade"]
-                        else None
-                    ),
-                    "token_f1": token_f1(result["answer"], reference) if reference else None,
-                    "abstained": result["abstained"],
-                    "metrics": result["metrics"],
-                    "evaluation_judge_latency_seconds": judge_latency,
-                    "trace": result["trace"],
-                }
+) -> Dict[str, Any]:
+    """Evaluate the strict budget-constrained pipeline on the versioned dataset."""
+    rows = []
+    for case in cases:
+        result = pipeline.run(case["question"])
+        if result["abstained"]:
+            answer_supported = None
+            judge_latency = 0.0
+        else:
+            judge_started = time.perf_counter()
+            answer_supported = pipeline.grade_answer_support(
+                case["question"], result["answer"], result["retrieved_docs"]
             )
-        policy_results[policy.value] = {
-            "summary": _summarize(policy, rows),
-            "details": rows,
-        }
-    return policy_results
+            judge_latency = time.perf_counter() - judge_started
+        reference = case.get("expected_answer")
+        rows.append(
+            {
+                "id": case["id"],
+                "category": case["category"],
+                "question": case["question"],
+                "answer": result["answer"],
+                "answer_supported": answer_supported,
+                "evidence_sufficiency": result["evidence_grade"]["sufficient"],
+                "token_f1": token_f1(result["answer"], reference) if reference else None,
+                "abstained": result["abstained"],
+                "metrics": result["metrics"],
+                "evaluation_judge_latency_seconds": judge_latency,
+                "trace": result["trace"],
+            }
+        )
+    return {"summary": _summarize(rows), "details": rows}
 
 
-def _summarize(policy: Policy, rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+def _summarize(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     count = len(rows)
     token_scores = [row["token_f1"] for row in rows if row["token_f1"] is not None]
     judged_answers = [row for row in rows if row["answer_supported"] is not None]
     corrected = [row for row in rows if row["metrics"]["correction_count"] > 0]
-    budget = CRAGPipeline._MAX_CORRECTIONS[policy] * count
+    budget = CRAGPipeline._MAX_CORRECTIONS * count
     return {
-        "policy": policy.value,
+        "pipeline": "BUDGET_CONSTRAINED_CRAG",
         "total_questions": count,
         "answer_correctness_token_f1": mean(token_scores) if token_scores else None,
         "evidence_support_rate": (
