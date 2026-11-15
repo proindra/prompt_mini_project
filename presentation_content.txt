@@ -1,0 +1,280 @@
+BUDGET-CONSTRAINED SELF-CORRECTIVE RAG
+Project presentation content and speaker notes
+
+Suggested length: 8-10 minutes
+Suggested format: 10 slides
+
+IMPORTANT PRESENTATION NOTE
+Do not present evaluation scores as known results until you run the versioned
+dataset evaluation. The model, retrieval results, and Wikipedia responses can
+vary. Fill in the results worksheet at the end with measurements from your own
+run.
+
+
+SLIDE 1 - TITLE
+Title:
+Budget-Constrained Self-Corrective RAG
+
+Subtitle:
+Evidence-aware retrieval, bounded correction, and safe abstention
+
+On-slide points:
+- Project: Budget-Constrained Self-Corrective RAG
+- Application: document-grounded question answering with web fallback
+- Presenter: [Your name]
+- Course / institution: [Add details]
+
+Speaker notes:
+Introduce the project as a question-answering system that checks its evidence
+before generating an answer. If the evidence is weak, it has a fixed limit on
+how many corrective retrieval steps it can take.
+
+
+SLIDE 2 - PROBLEM AND MOTIVATION
+Title:
+Why ordinary retrieval-augmented question answering can fail
+
+On-slide points:
+- A retriever can return passages that are irrelevant or incomplete.
+- A fluent answer is not necessarily supported by retrieved evidence.
+- Repeated retrieval attempts can increase latency and make behavior hard to
+  predict.
+- If evidence remains insufficient, the system should not invent an answer.
+
+Speaker notes:
+The project focuses on the gap between retrieving text and having enough
+reliable evidence to answer. The system treats evidence grading and abstention
+as part of the answering flow, rather than assuming every retrieval result is
+good enough.
+
+
+SLIDE 3 - OBJECTIVE AND CONTRIBUTION
+Title:
+Project objective and contribution
+
+On-slide points:
+- Use one fixed question-answering path; do not expose alternate RAG policies.
+- Limit correction to one rewritten local retrieval and one web-search attempt.
+- Generate only after the evidence grader marks the evidence sufficient.
+- Return an explicit abstention when reliable evidence is unavailable.
+- Expose routes, evidence status, sources, citations, and measured metrics.
+
+Speaker notes:
+The contribution is an integrated, bounded, and inspectable implementation of
+self-corrective retrieval. This project does not claim that CRAG, query
+rewriting, or RAG itself is a newly invented algorithm. Its contribution is
+making this particular correction and abstention policy explicit and
+measurable.
+
+
+SLIDE 4 - SYSTEM ARCHITECTURE
+Title:
+Strict two-correction architecture
+
+On-slide diagram:
+
+User Question
+    |
+    v
+Initial Local Retrieval
+    |
+    v
+Evidence Grader
+    | Sufficient ----------------------------+
+    |                                         |
+    | Insufficient                            v
+    v                               Generate Grounded Answer
+Correction Budget: max 2                        |
+    |                                           |
+    v                                           |
+Attempt 1                                       |
+    |                                           |
+    v                                           |
+Rewrite Query                                   |
+    |                                           |
+    v                                           |
+Local Retrieval Again                          |
+    |                                           |
+    v                                           |
+Re-evaluate Evidence                           |
+    | Sufficient -------------------------------+
+    | Insufficient
+    v
+Attempt 2: Web Search
+    |
+    v
+Merge and Validate Evidence
+    | Sufficient ------------------------------+
+    | No reliable evidence                     |
+    v                                           |
+Abstain                                         |
+    |                                           |
+    +-------------------+-----------------------+
+                        v
+              Answer + Citations + Trace
+                        |
+                        v
+              Evaluation Dashboard
+
+Speaker notes:
+The initial local retrieval is not counted as a correction. Attempt 1 rewrites
+the question and searches the local index again. Attempt 2 uses Wikipedia only
+if the rewritten local retrieval is still insufficient. The merged evidence
+is graded before generation. Both generated answers and abstentions are
+reported with a trace.
+
+
+SLIDE 5 - HOW EVIDENCE AND CORRECTIONS WORK
+Title:
+Evidence-gated routing
+
+On-slide points:
+- Evidence grading checks relevance, sufficiency, and contradiction.
+- Vector similarity retrieves candidate passages; it does not establish
+  factual correctness.
+- A rewritten query is used for one additional local retrieval.
+- If still insufficient, Wikipedia is searched and its results are merged
+  with local evidence.
+- The final merged evidence is graded again, including after a web-search
+  failure.
+- The correction counter is independent for every question and never exceeds
+  two.
+
+Speaker notes:
+Describe the two possible outcomes at each grading point. Sufficient evidence
+routes to grounded generation. Insufficient evidence routes to the next
+allowed correction, and the final insufficient result routes to abstention.
+Web-search errors do not bypass the final evidence check.
+
+
+SLIDE 6 - IMPLEMENTATION
+Title:
+Implementation and technology
+
+On-slide points:
+- Python 3.13+
+- Streamlit interface and command-line entry point
+- LangChain integration with a configurable Groq chat model
+- Local sentence-transformers/all-MiniLM-L6-v2 embeddings
+- FAISS in-memory vector index
+- Local PDF and configured web sources; Wikipedia API for web fallback
+- Core pipeline and dataset evaluation: src/research/crag.py
+
+Speaker notes:
+The document index is created when the app initializes and is not persisted
+between process runs. Embeddings run locally, while Groq completions and web
+requests require internet access. Do not display or share the .env file or API
+key during the demo.
+
+
+SLIDE 7 - VERSIONED EVALUATION
+Title:
+How the architecture is evaluated
+
+On-slide points:
+- The versioned dataset contains six challenge cases.
+- Cases cover local answers, query-rewrite challenges, web-only questions,
+  irrelevant local retrieval, conflicting evidence, and insufficient evidence.
+- Per-question output records the route, evidence sufficiency at stages,
+  final action, and trace.
+- Aggregate metrics include token F1, LLM-judged answer support,
+  expected-action accuracy where supplied, route counts, latency, retrieval
+  attempts, web calls, correction use, and abstention.
+- Evaluation results are generated live; no scores are pre-filled.
+
+Speaker notes:
+Explain that dataset categories are intended challenge types, not guaranteed
+routes. Retrieval and model behavior can vary. Expected-action accuracy is
+calculated only for cases that define an expected action. Token F1 is a simple
+reference-answer overlap metric and should not be presented as a complete
+measure of semantic correctness.
+
+Results to fill in after a real evaluation run:
+- Dataset version / run date: [Fill in]
+- Number of questions: [Fill in]
+- Token F1: [Fill in, if available]
+- Evidence-support rate: [Fill in, if available]
+- Expected-action accuracy: [Fill in, if available]
+- Initial evidence sufficient: [Fill in]
+- Rewritten local retrieval sufficient: [Fill in]
+- Web-merged evidence sufficient: [Fill in]
+- Abstention count / rate: [Fill in]
+- Mean end-to-end latency: [Fill in]
+
+
+SLIDE 8 - LIVE DEMONSTRATION
+Title:
+Demonstration plan
+
+Demo sequence:
+1. Start the app with:
+   uv run streamlit run streamlit_app.py
+2. Ask a local-corpus question:
+   What architecture did the paper Attention Is All You Need propose?
+3. Show the generated answer, citations, evidence grade, and route trace.
+4. Ask an unsupported question:
+   What is the favorite color of the authors of Attention Is All You Need?
+5. Show the correction steps and abstention if the system cannot find reliable
+   evidence.
+6. Open "Run versioned dataset evaluation."
+7. Show the actual architecture route counts, stage outcomes, and per-question
+   traces.
+
+Speaker notes:
+Do not promise a particular route for a question: the model and retrieved
+evidence determine the route. If live APIs are unavailable, explain that the
+demo requires a valid GROQ_API_KEY and internet access; do not fabricate
+evaluation output.
+
+
+SLIDE 9 - LIMITATIONS AND FUTURE WORK
+Title:
+Limitations and next steps
+
+On-slide points:
+- Evidence grading depends on LLM judgments and can vary between runs.
+- Wikipedia and configured web sources require network access.
+- The FAISS index is in memory and rebuilt on startup.
+- Token F1 is not a full semantic correctness metric.
+- The current evaluation reports observed behavior; it does not establish
+  superiority over a baseline.
+
+Possible future work:
+- Repeat evaluations across seeds, model versions, and corpus versions.
+- Add human-reviewed evidence and answer judgments.
+- Compare quality, latency, and retrieval use against clearly defined
+  research baselines in a separate offline study.
+- Persist and version indexes and evaluation results.
+
+Speaker notes:
+Separate implemented features from planned research. The current app has one
+strict answering path. Any baseline comparison would be future experimental
+work, not a selectable runtime policy in this project.
+
+
+SLIDE 10 - SUMMARY AND QUESTIONS
+Title:
+Takeaways
+
+On-slide points:
+- The system uses a strict local-first correction sequence.
+- It has a hard maximum of two corrections per question.
+- Evidence sufficiency controls whether it answers or abstains.
+- Each outcome includes citations, route trace, and measurable metrics.
+
+Closing:
+Questions?
+
+Speaker notes:
+End by emphasizing bounded recovery and transparency: the system exposes what
+it searched, how it judged the evidence, whether it corrected, and why it
+answered or abstained.
+
+
+PRESENTATION CHECKLIST
+- Replace [Your name], [Add details], and all [Fill in] evaluation fields.
+- Run the versioned evaluation before presenting any measured results.
+- Keep the API key private; never include .env in slides or screenshots.
+- Use a screenshot of the current application, not fabricated UI or metrics.
+- Keep any result claims limited to the specific dataset, sources, and run you
+  actually evaluated.
