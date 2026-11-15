@@ -1,14 +1,18 @@
 """LangGraph nodes for RAG workflow + ReAct Agent inside generate_content"""
 
-import os
 from typing import List, Optional
 from src.state.rag_state import RAGState
 
 from langchain_core.documents import Document
-from langchain_core.tools import Tool
+from langchain_core.tools import StructuredTool
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
-import requests
+from pydantic import BaseModel, Field
+from src.research.web_search import search_wikipedia
+
+
+class SearchInput(BaseModel):
+    query: str = Field(description="Search query")
 
 
 class RAGNodes:
@@ -27,7 +31,7 @@ class RAGNodes:
             retrieved_docs=docs
         )
 
-    def _build_tools(self) -> List[Tool]:
+    def _build_tools(self) -> List[StructuredTool]:
         """Build retriever + wikipedia tools"""
 
         def retriever_tool_fn(query: str) -> str:
@@ -41,16 +45,18 @@ class RAGNodes:
                 merged.append(f"[{i}] {title}\n{d.page_content}")
             return "\n\n".join(merged)
 
-        retriever_tool = Tool(
+        retriever_tool = StructuredTool.from_function(
             name="retriever",
             description="Fetch passages from indexed corpus.",
             func=retriever_tool_fn,
+            args_schema=SearchInput,
         )
 
-        wikipedia_tool = Tool(
+        wikipedia_tool = StructuredTool.from_function(
             name="wikipedia",
             description="Search Wikipedia for general knowledge. Input should be a search query.",
             func=self._search_wikipedia,
+            args_schema=SearchInput,
         )
 
         return [retriever_tool, wikipedia_tool]
@@ -58,50 +64,15 @@ class RAGNodes:
     @staticmethod
     def _search_wikipedia(query: str) -> str:
         """Search Wikipedia over HTTPS and return concise article extracts."""
-        endpoint = "https://en.wikipedia.org/w/api.php"
-        headers = {
-            "User-Agent": os.getenv("USER_AGENT", "AgenticRAG/0.1")
-        }
-        search_response = requests.get(
-            endpoint,
-            params={
-                "action": "query",
-                "list": "search",
-                "srsearch": query[:300],
-                "srlimit": 3,
-                "format": "json",
-            },
-            headers=headers,
-            timeout=15,
-        )
-        search_response.raise_for_status()
-        search_results = search_response.json()["query"]["search"]
-        if not search_results:
+        documents = search_wikipedia(query)
+        if not documents:
             return "No good Wikipedia Search Result was found."
-
-        page_response = requests.get(
-            endpoint,
-            params={
-                "action": "query",
-                "pageids": "|".join(str(result["pageid"]) for result in search_results),
-                "prop": "extracts",
-                "exintro": 1,
-                "explaintext": 1,
-                "exchars": 1200,
-                "format": "json",
-            },
-            headers=headers,
-            timeout=15,
+        return "\n\n".join(
+            f"Page: {doc.metadata.get('title', 'Wikipedia')}\n"
+            f"Source: {doc.metadata.get('source', '')}\n"
+            f"Summary: {doc.page_content}"
+            for doc in documents
         )
-        page_response.raise_for_status()
-        pages = page_response.json()["query"]["pages"]
-
-        summaries = [
-            f"Page: {result['title']}\nSummary: {pages[str(result['pageid'])].get('extract', '')}"
-            for result in search_results
-            if pages[str(result["pageid"])].get("extract")
-        ]
-        return "\n\n".join(summaries) or "No good Wikipedia Search Result was found."
 
     def _build_agent(self):
         """ReAct agent with tools"""
@@ -111,7 +82,7 @@ class RAGNodes:
             "Prefer 'retriever' for user-provided docs; use 'wikipedia' for general knowledge. "
             "Return only the final useful answer."
         )
-        self._agent = create_react_agent(self.llm, tools=tools,prompt=system_prompt)
+        self._agent = create_react_agent(self.llm, tools=tools, prompt=system_prompt)
 
     def generate_answer(self, state: RAGState) -> RAGState:
         """

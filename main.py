@@ -1,4 +1,4 @@
-"""Main application entry point for Agentic RAG system"""
+"""Main application entry point for Budget-Constrained Self-Corrective RAG."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from src.vectorstore.vectorstore import VectorStore
 from src.graph_builder.graph_builder import GraphBuilder
 
 class AgenticRAG:
-    """Main Agentic RAG application"""
+    """Command-line interface for the RAG application."""
     
     def __init__(self, urls=None):
         """
@@ -21,7 +21,7 @@ class AgenticRAG:
         Args:
             urls: List of URLs to process (uses defaults if None)
         """
-        print("🚀 Initializing Agentic RAG System...")
+        print("🚀 Initializing Budget-Constrained Self-Corrective RAG...")
         
         # Use default URLs if none provided
         self.urls = urls or Config.DEFAULT_URLS

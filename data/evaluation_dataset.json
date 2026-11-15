@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "source_corpus": "data/attention.pdf and the configured default web sources",
+  "questions": [
+    {
+      "id": "local-transformer-architecture",
+      "category": "local_answerable",
+      "question": "What architecture did the paper Attention Is All You Need propose?",
+      "expected_answer": "The Transformer, based solely on attention mechanisms and dispensing with recurrence and convolutions.",
+      "reference_evidence": "data/attention.pdf, abstract"
+    },
+    {
+      "id": "local-query-rewrite",
+      "category": "query_rewrite",
+      "question": "In the 2017 attention paper, what lets the model avoid sequential recurrence?",
+      "expected_answer": "The Transformer uses attention mechanisms rather than recurrence, allowing more parallelization.",
+      "reference_evidence": "data/attention.pdf, abstract and introduction"
+    },
+    {
+      "id": "web-france-capital",
+      "category": "web_only",
+      "question": "What is the capital of France?",
+      "expected_answer": "Paris.",
+      "reference_evidence": "https://en.wikipedia.org/wiki/Paris"
+    },
+    {
+      "id": "irrelevant-local-japan-capital",
+      "category": "irrelevant_local_then_web",
+      "question": "What is the capital of Japan?",
+      "expected_answer": "Tokyo.",
+      "reference_evidence": "https://en.wikipedia.org/wiki/Tokyo"
+    },
+    {
+      "id": "conflicting-premise-bleu",
+      "category": "conflicting_evidence",
+      "question": "The paper is said to report both 28.4 and 25.9 BLEU for English-to-German translation. Which score does its abstract actually report?",
+      "expected_answer": "The abstract reports 28.4 BLEU for the WMT 2014 English-to-German task.",
+      "reference_evidence": "data/attention.pdf, abstract"
+    },
+    {
+      "id": "unsupported-author-preference",
+      "category": "insufficient_evidence",
+      "question": "What is the favorite color of the authors of Attention Is All You Need?",
+      "expected_action": "abstain",
+      "reference_evidence": "No supporting evidence in the configured corpus"
+    }
+  ]
+}

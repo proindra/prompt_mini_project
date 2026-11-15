@@ -1,22 +1,19 @@
 """Document processing module for loading and splitting documents"""
 
 import os
-from typing import List
+from pathlib import Path
+from typing import List, Union
 
 os.environ.setdefault("USER_AGENT", "AgenticRAG/0.1")
 
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.schema import Document
-
-from typing import List, Union
-from pathlib import Path
 from langchain_community.document_loaders import (
     WebBaseLoader,
     PyPDFLoader,
     TextLoader,
-    PyPDFDirectoryLoader
+    PyPDFDirectoryLoader,
 )
+from langchain.schema import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class DocumentProcessor:
     """Handles document loading and processing"""
@@ -33,8 +30,9 @@ class DocumentProcessor:
         self.chunk_overlap = chunk_overlap
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
+            chunk_overlap=chunk_overlap,
         )
+
     def load_from_url(self, url: str) -> List[Document]:
         """Load document(s) from a URL"""
         loader = WebBaseLoader(url)
@@ -52,9 +50,9 @@ class DocumentProcessor:
 
     def load_from_pdf(self, file_path: Union[str, Path]) -> List[Document]:
         """Load document(s) from a PDF file"""
-        loader = PyPDFDirectoryLoader(str("data"))
+        loader = PyPDFLoader(str(file_path))
         return loader.load()
-    
+
     def load_documents(self, sources: List[str]) -> List[Document]:
         """
         Load documents from URLs, PDF directories, or TXT files
@@ -66,13 +64,25 @@ class DocumentProcessor:
             List of loaded documents
         """
         docs: List[Document] = []
+        includes_url = False
+        included_data_directory = False
         for src in sources:
             if src.startswith("http://") or src.startswith("https://"):
+                includes_url = True
                 docs.extend(self.load_from_url(src))
-           
-            path = Path("data")
-            if path.is_dir():  # PDF directory
+
+                continue
+
+            path = Path(src)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            if path.is_dir():
                 docs.extend(self.load_from_pdf_dir(path))
+                data_directory = Path(__file__).resolve().parents[2] / "data"
+                if path.resolve() == data_directory.resolve():
+                    included_data_directory = True
+            elif path.suffix.lower() == ".pdf":
+                docs.extend(self.load_from_pdf(path))
             elif path.suffix.lower() == ".txt":
                 docs.extend(self.load_from_txt(path))
             else:
@@ -80,8 +90,12 @@ class DocumentProcessor:
                     f"Unsupported source type: {src}. "
                     "Use URL, .txt file, or PDF directory."
                 )
+
+        data_directory = Path(__file__).resolve().parents[2] / "data"
+        if includes_url and not included_data_directory and data_directory.is_dir():
+            docs.extend(self.load_from_pdf_dir(data_directory))
         return docs
-    
+
     def split_documents(self, documents: List[Document]) -> List[Document]:
         """
         Split documents into chunks

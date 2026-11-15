@@ -136,6 +136,43 @@ wheels = [
 ]
 
 [[package]]
+name = "budget-constrained-self-corrective-rag"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "faiss-cpu" },
+    { name = "langchain" },
+    { name = "langchain-community" },
+    { name = "langchain-groq" },
+    { name = "langchain-huggingface" },
+    { name = "langgraph" },
+    { name = "pydantic" },
+    { name = "pypdf" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "sentence-transformers" },
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.13.4" },
+    { name = "faiss-cpu", specifier = ">=1.12.0" },
+    { name = "langchain", specifier = ">=0.3.27" },
+    { name = "langchain-community", specifier = ">=0.3.27" },
+    { name = "langchain-groq", specifier = ">=0.3.6" },
+    { name = "langchain-huggingface", specifier = ">=0.3.1" },
+    { name = "langgraph", specifier = ">=0.6.5" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pypdf", specifier = ">=6.0.0" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "requests", specifier = ">=2.32.4" },
+    { name = "sentence-transformers", specifier = ">=6.2.0" },
+    { name = "streamlit", specifier = ">=1.48.1" },
+]
+
+[[package]]
 name = "cachetools"
 version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1584,43 +1621,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/0f/25911a9f080464c59fab9027482f822b86bf0608957a5fcc6eaac85aa515/PyYAML-6.0.2-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:68ccc6023a3400877818152ad9a1033e3db8625d899c72eacb5a668902e4d652", size = 751597, upload-time = "2024-08-06T20:32:56.985Z" },
     { url = "https://files.pythonhosted.org/packages/14/0d/e2c3b43bbce3cf6bd97c840b46088a3031085179e596d4929729d8d68270/PyYAML-6.0.2-cp313-cp313-win32.whl", hash = "sha256:bc2fa7c6b47d6bc618dd7fb02ef6fdedb1090ec036abab80d4681424b84c1183", size = 140527, upload-time = "2024-08-06T20:33:03.001Z" },
     { url = "https://files.pythonhosted.org/packages/fa/de/02b54f42487e3d3c6efb3f89428677074ca7bf43aae402517bc7cca949f3/PyYAML-6.0.2-cp313-cp313-win_amd64.whl", hash = "sha256:8388ee1976c416731879ac16da0aff3f63b286ffdd57cdeb95f3f2e085687563", size = 156446, upload-time = "2024-08-06T20:33:04.33Z" },
-]
-
-[[package]]
-name = "ragdemo"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "beautifulsoup4" },
-    { name = "faiss-cpu" },
-    { name = "langchain" },
-    { name = "langchain-community" },
-    { name = "langchain-groq" },
-    { name = "langchain-huggingface" },
-    { name = "langgraph" },
-    { name = "pydantic" },
-    { name = "pypdf" },
-    { name = "python-dotenv" },
-    { name = "requests" },
-    { name = "sentence-transformers" },
-    { name = "streamlit" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beautifulsoup4", specifier = ">=4.13.4" },
-    { name = "faiss-cpu", specifier = ">=1.12.0" },
-    { name = "langchain", specifier = ">=0.3.27" },
-    { name = "langchain-community", specifier = ">=0.3.27" },
-    { name = "langchain-groq", specifier = ">=0.3.6" },
-    { name = "langchain-huggingface", specifier = ">=0.3.1" },
-    { name = "langgraph", specifier = ">=0.6.5" },
-    { name = "pydantic", specifier = ">=2.11.7" },
-    { name = "pypdf", specifier = ">=6.0.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "requests", specifier = ">=2.32.4" },
-    { name = "sentence-transformers", specifier = ">=6.2.0" },
-    { name = "streamlit", specifier = ">=1.48.1" },
 ]
 
 [[package]]

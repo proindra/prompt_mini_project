@@ -1,8 +1,8 @@
 <div align="center">
 
-# ContextIQ
+# Budget-Constrained Self-Corrective RAG
 
-### Agentic RAG with local-first embeddings and Groq-powered answers
+### Failure-aware corrective retrieval with Groq-powered answers
 
 <img src="https://img.shields.io/badge/Python-3.13%2B-2563EB?style=for-the-badge&logo=python&logoColor=white&labelColor=172554" alt="Python 3.13+" />
 <img src="https://img.shields.io/badge/LLM-Groq-F97316?style=for-the-badge&logo=groq&logoColor=white&labelColor=431407" alt="Groq" />
@@ -12,10 +12,11 @@
 
 </div>
 
-ContextIQ answers questions using your indexed documents and web sources. It
+This project answers questions using indexed documents and web sources. It
 combines FAISS retrieval, local `sentence-transformers/all-MiniLM-L6-v2`
 embeddings, a Groq chat model, and a ReAct agent with retrieval and Wikipedia
-tools.
+tools. Its research contribution is a
+**Budget-Constrained Self-Corrective RAG policy with Failure-Aware Routing**.
 
 ## Features
 
@@ -28,6 +29,8 @@ tools.
   document chunks.
 - **ReAct tool agent:** the chat model can choose between searching the indexed
   documents and looking up general information through Wikipedia's HTTPS API.
+- **CRAG research policies:** compare baseline RAG, one-correction Standard
+  CRAG, and Rate-Limited CRAG with a strict two-correction budget.
 - **Two ways to run:** a Streamlit interface or the command-line application.
 
 Groq chat completions and source downloads require an internet connection. On
@@ -49,8 +52,8 @@ locally.
 Clone the project and enter its directory:
 
 ```powershell
-git clone https://github.com/proindra/ContextIQ.git
-cd ContextIQ
+git clone https://github.com/proindra/prompt_mini_project.git
+cd prompt_mini_project
 ```
 
 Install the locked dependencies:
@@ -95,6 +98,42 @@ Open the local URL printed by Streamlit (usually `http://localhost:8501`). The
 first initialization may take longer while the embedding model is downloaded
 and the document index is built. Ask a question in the search box; the app
 shows the answer and retrieved source passages.
+
+The **CRAG Research** tab provides policy selection, evidence grades, local and
+web sources, query-rewrite history, routing trace, correction count, and timing.
+The existing **Document Search** tab continues to use the original ReAct agent.
+
+The **Evaluation** tab runs the versioned sample dataset in
+`data/evaluation_dataset.json` against all three policies. This makes live Groq
+calls (and may make Wikipedia calls). It displays answer token F1 when a
+reference answer is supplied, LLM-judged answer support, evidence sufficiency,
+retrieval and web-call counts, correction use, latency, abstention, and
+correction success. Results can be downloaded as JSON. No evaluation scores
+are pre-filled or claimed in advance.
+
+### Research methodology
+
+- `BASELINE_RAG` retrieves once and generates directly from local evidence.
+- `STANDARD_CRAG` grades the initial evidence and may rewrite the query and
+  retrieve locally once.
+- `RATE_LIMITED_CRAG` grades initial evidence, allows one rewritten local
+  retrieval, and uses Wikipedia as the second and final corrective attempt.
+  It abstains if evidence is still insufficient or contradictory.
+- Correction counters are local to each `run` call. Initial retrieval does
+  not count as a correction; corrective retrieval is bounded by the selected
+  policy.
+- Grading uses the configured Groq model and the evidence text; vector
+  similarity is only used to retrieve candidate passages, not to decide
+  whether evidence is factually sufficient.
+- Dataset categories describe intended challenge cases, not guaranteed
+  routing outcomes. Retrieval, model responses, and Wikipedia results can vary.
+  The dashboard reports observed results rather than asserting improvements.
+- Answer correctness is token-level F1 against the included reference answers.
+  Evidence support is a separate LLM judgment of whether the answer is
+  supported by its retrieved passages. The support-judge latency is reported
+  separately from policy latency.
+- `data/attention.pdf` is loaded alongside the configured URLs. The index is
+  still in-memory and rebuilt on startup.
 
 ### Run the command-line app instead
 
@@ -148,8 +187,8 @@ implemented in `src/graph_builder/graph_builder.py` and
 `src/node/reactnode.py`. Model configuration is in `src/config/config.py`.
 
 The FAISS index is rebuilt when the app initializes; it is not persisted between
-process runs. Streamlit caches the initialized RAG graph for the current app
-process.
+process runs. Streamlit caches the initialized RAG graph and research pipeline
+for the current app process.
 
 ## Sources and configuration
 
