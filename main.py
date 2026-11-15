@@ -1,5 +1,6 @@
 """Main application entry point for Budget-Constrained Self-Corrective RAG."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,22 +10,25 @@ sys.path.append(str(Path(__file__).parent))
 from src.config.config import Config
 from src.document_ingestion.document_processor import DocumentProcessor
 from src.vectorstore.vectorstore import VectorStore
-from src.graph_builder.graph_builder import GraphBuilder
+from src.research.crag import CRAGPipeline, Policy
 
-class AgenticRAG:
-    """Command-line interface for the RAG application."""
-    
-    def __init__(self, urls=None):
+
+class BudgetConstrainedRAG:
+    """Command-line interface for the CRAG application."""
+
+    def __init__(self, urls=None, policy: Policy = Policy.RATE_LIMITED_CRAG):
         """
-        Initialize Agentic RAG system
+        Initialize the retrieval pipeline.
         
         Args:
             urls: List of URLs to process (uses defaults if None)
+            policy: Retrieval policy used for each question
         """
         print("🚀 Initializing Budget-Constrained Self-Corrective RAG...")
         
         # Use default URLs if none provided
         self.urls = urls or Config.DEFAULT_URLS
+        self.policy = Policy(policy)
         
         # Initialize components
         self.llm = Config.get_llm()
@@ -37,12 +41,10 @@ class AgenticRAG:
         # Process documents and create vector store
         self._setup_vectorstore()
         
-        # Build graph
-        self.graph_builder = GraphBuilder(
+        self.pipeline = CRAGPipeline(
             retriever=self.vector_store.get_retriever(),
-            llm=self.llm
+            llm=self.llm,
         )
-        self.graph_builder.build()
         
         print("✅ System initialized successfully!\n")
     
@@ -68,10 +70,17 @@ class AgenticRAG:
         print(f"❓ Question: {question}\n")
         print("🤔 Processing...")
         
-        result = self.graph_builder.run(question)
-        answer = result['answer']
+        result = self.pipeline.run(question, self.policy)
+        answer = result["answer"]
         
-        print(f"✅ Answer: {answer}\n")
+        print(f"✅ Answer: {answer}")
+        for index, document in enumerate(result["retrieved_docs"], start=1):
+            source = document.metadata.get("source", "Unknown source")
+            title = document.metadata.get("title", f"Evidence {index}")
+            print(f"[{index}] {title} — {source}")
+        print("Trace:")
+        print(json.dumps(result["trace"], indent=2))
+        print(f"Metrics: {json.dumps(result['metrics'], indent=2)}\n")
         return answer
     
     def interactive_mode(self):
@@ -100,7 +109,7 @@ def main():
             urls = [line.strip() for line in f if line.strip()]
     
     # Initialize RAG system
-    rag = AgenticRAG(urls=urls)
+    rag = BudgetConstrainedRAG(urls=urls)
     
     # Example questions
     example_questions = [

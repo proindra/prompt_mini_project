@@ -2,15 +2,16 @@
 
 ## Project Objective
 
-Transform the existing ContextIQ RAG application into a research prototype for:
+Make **Budget-Constrained Self-Corrective RAG with Failure-Aware Routing** the
+project's only question-answering application.
 
-**Budget-Constrained Self-Corrective RAG with Failure-Aware Routing**
-
-Do NOT rebuild the application from scratch.
+Reuse the existing document ingestion, vector database, and LLM integration.
+Do not retain a separate legacy ReAct or normal-RAG answering path.
 
 First inspect the existing repository, architecture, backend, frontend, retrieval pipeline, LLM integration, vector database, and existing evaluation utilities.
 
-Preserve all existing working functionality.
+Preserve the reusable document ingestion, vector store, configuration, and
+evaluation functionality.
 
 ## Research Contribution
 
@@ -126,7 +127,7 @@ Support repeated evaluation using the same dataset.
 
 ### 6. Frontend Research Dashboard
 
-Extend the existing React frontend.
+Extend the existing Streamlit frontend.
 
 Add a CRAG research dashboard containing:
 
@@ -190,7 +191,8 @@ Adapt the actual schema to the existing application.
 - Avoid introducing unnecessary paid APIs.
 - Use existing LLM integration wherever possible.
 - If web search requires an API key, implement a configurable provider and clearly document setup.
-- Keep research functionality separate from existing normal RAG functionality.
+- Route all question answering through the CRAG pipeline; keep the three
+  research policies selectable within that pipeline.
 
 ## Execution Instructions
 
@@ -206,7 +208,7 @@ Work incrementally:
 8. Implement frontend research dashboard.
 9. Add tests.
 10. Update README and research methodology documentation.
-11. Verify existing functionality remains intact.
+11. Verify the CRAG answering and evaluation workflows remain intact.
 12. Run the application and report actual results.
 
 Do not stop after providing an architecture explanation.

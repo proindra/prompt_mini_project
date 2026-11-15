@@ -10,7 +10,7 @@ from langchain_core.documents import Document
 def search_wikipedia(query: str) -> List[Document]:
     """Return Wikipedia extracts as cited documents."""
     endpoint = "https://en.wikipedia.org/w/api.php"
-    headers = {"User-Agent": os.getenv("USER_AGENT", "AgenticRAG/0.1")}
+    headers = {"User-Agent": os.getenv("USER_AGENT", "BudgetCRAG/0.1")}
     search_response = requests.get(
         endpoint,
         params={

@@ -7,16 +7,16 @@
 <img src="https://img.shields.io/badge/Python-3.13%2B-2563EB?style=for-the-badge&logo=python&logoColor=white&labelColor=172554" alt="Python 3.13+" />
 <img src="https://img.shields.io/badge/LLM-Groq-F97316?style=for-the-badge&logo=groq&logoColor=white&labelColor=431407" alt="Groq" />
 <img src="https://img.shields.io/badge/Embeddings-Hugging%20Face-A855F7?style=for-the-badge&logo=huggingface&logoColor=white&labelColor=3B0764" alt="Hugging Face embeddings" />
-<img src="https://img.shields.io/badge/Orchestration-LangGraph-14B8A6?style=for-the-badge&logo=langchain&logoColor=white&labelColor=042F2E" alt="LangGraph" />
+<img src="https://img.shields.io/badge/Research-CRAG-14B8A6?style=for-the-badge&logo=langchain&logoColor=white&labelColor=042F2E" alt="Corrective RAG" />
 <img src="https://img.shields.io/badge/UI-Streamlit-EC4899?style=for-the-badge&logo=streamlit&logoColor=white&labelColor=500724" alt="Streamlit" />
 
 </div>
 
 This project answers questions using indexed documents and web sources. It
 combines FAISS retrieval, local `sentence-transformers/all-MiniLM-L6-v2`
-embeddings, a Groq chat model, and a ReAct agent with retrieval and Wikipedia
-tools. Its research contribution is a
-**Budget-Constrained Self-Corrective RAG policy with Failure-Aware Routing**.
+embeddings, and a Groq chat model in a
+**Budget-Constrained Self-Corrective RAG pipeline with Failure-Aware Routing**.
+All question answering uses the CRAG pipeline.
 
 ## Features
 
@@ -27,10 +27,11 @@ tools. Its research contribution is a
   OpenAI API key or a hosted embedding API.
 - **FAISS retrieval:** creates an in-memory vector index from processed
   document chunks.
-- **ReAct tool agent:** the chat model can choose between searching the indexed
-  documents and looking up general information through Wikipedia's HTTPS API.
-- **CRAG research policies:** compare baseline RAG, one-correction Standard
-  CRAG, and Rate-Limited CRAG with a strict two-correction budget.
+- **Three selectable policies:** compare `BASELINE_RAG`, `STANDARD_CRAG`, and
+  `RATE_LIMITED_CRAG`.
+- **Failure-aware routing:** grade evidence, rewrite the query for one local
+  retry, use Wikipedia as the second correction, and abstain if evidence is
+  insufficient or contradictory.
 - **Two ways to run:** a Streamlit interface or the command-line application.
 
 Groq chat completions and source downloads require an internet connection. On
@@ -77,13 +78,13 @@ Open `.env` and replace the placeholder with your Groq API key:
 ```env
 GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=qwen/qwen3.8-27b
-USER_AGENT=AgenticRAG/0.1 (contact: you@example.com)
+USER_AGENT=BudgetCRAG/0.1 (contact: you@example.com)
 ```
 
 `GROQ_API_KEY` is required. `GROQ_MODEL` is optional; if omitted, the
 application uses `qwen/qwen3.8-27b`. Set it to a model ID currently available
 to your Groq account. `USER_AGENT` identifies requests made to web sources;
-the application supplies `AgenticRAG/0.1` if it is omitted.
+the application supplies `BudgetCRAG/0.1` if it is omitted.
 
 Keep `.env` private. It is excluded from Git; commit `.env.example`, not your
 personal `.env` file.
@@ -99,9 +100,9 @@ first initialization may take longer while the embedding model is downloaded
 and the document index is built. Ask a question in the search box; the app
 shows the answer and retrieved source passages.
 
-The **CRAG Research** tab provides policy selection, evidence grades, local and
-web sources, query-rewrite history, routing trace, correction count, and timing.
-The existing **Document Search** tab continues to use the original ReAct agent.
+The **Ask a Question** tab uses the CRAG pipeline (defaulting to
+`RATE_LIMITED_CRAG`) and shows policy selection, evidence grades, local and web
+sources, query-rewrite history, routing trace, correction count, and timing.
 
 The **Evaluation** tab runs the versioned sample dataset in
 `data/evaluation_dataset.json` against all three policies. This makes live Groq
@@ -141,9 +142,9 @@ are pre-filled or claimed in advance.
 uv run python main.py
 ```
 
-The CLI initializes the same RAG components, runs its example questions, and
-offers an interactive prompt. Type `quit`, `exit`, or `q` to leave interactive
-mode.
+The CLI initializes the same CRAG components, runs its example questions with
+`RATE_LIMITED_CRAG`, and offers an interactive prompt. Type `quit`, `exit`, or
+`q` to leave interactive mode.
 
 ## System architecture
 
@@ -159,17 +160,7 @@ flowchart TD
         SRC --> PROC --> EMB --> V
     end
 
-    UI -->|Document Search| OLD[Existing LangGraph RAG]
-    OLD --> OLDRET[Initial retrieval]
-    OLDRET --> AG[ReAct agent]
-    AG --> TOOL{Tools}
-    TOOL -->|Local passages| V
-    TOOL -->|Wikipedia lookup| WIKI[Wikipedia API]
-    V --> AG
-    WIKI --> AG
-    AG --> OLDOUT[Answer and retrieved sources]
-
-    UI -->|CRAG Research| POLICY{Selected policy}
+    UI -->|Ask a Question| POLICY{Selected policy}
     POLICY -->|BASELINE_RAG| BASE[Initial local retrieval]
     BASE --> V
     V --> BASECHECK{Evidence retrieved?}
@@ -196,13 +187,13 @@ flowchart TD
 
     GEN --> RESULT[Answer, citations, metrics, and trace]
     ABSTAIN --> RESULT
-    RESULT --> DASH[CRAG research result dashboard]
+    RESULT --> DASH[Answer, citations, trace, and metrics]
     UI -->|Evaluation tab| EVAL[Comparative evaluation dashboard]
 ```
 
-Both interfaces use the same in-memory FAISS index. The original
-**Document Search** path remains the LangGraph/ReAct workflow; the
-**CRAG Research** path applies one of the explicit policies shown above.
+The Streamlit app and CLI both use the same CRAG pipeline and in-memory FAISS
+index. The app exposes the question-answering and comparative-evaluation
+dashboards.
 
 ### Research request flow
 
@@ -226,16 +217,14 @@ Both interfaces use the same in-memory FAISS index. The original
    set through all three policies and presents measured outcomes; it does not
    display fabricated or pre-filled results.
 
-The original graph state and ReAct workflow are defined in
-`src/state/rag_state.py`, `src/graph_builder/graph_builder.py`, and
-`src/node/reactnode.py`. Research policies, evidence grading, traces, and
-evaluation metrics are implemented in `src/research/crag.py`; the shared
-Wikipedia adapter is in `src/research/web_search.py`. Model configuration is in
-`src/config/config.py`.
+The CLI entry point is `main.py`. Streamlit setup and dashboards are in
+`streamlit_app.py`. Policies, evidence grading, traces, and evaluation metrics
+are implemented in `src/research/crag.py`; the Wikipedia adapter is in
+`src/research/web_search.py`. Model configuration is in `src/config/config.py`.
 
 The FAISS index is rebuilt when the app initializes; it is not persisted between
-process runs. Streamlit caches the initialized RAG graph and research pipeline
-for the current app process.
+process runs. Streamlit caches the CRAG pipeline and vector index for the
+current app process.
 
 ## Sources and configuration
 

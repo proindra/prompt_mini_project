@@ -1,8 +1,7 @@
-"""Streamlit interface for the existing RAG app and CRAG research prototype."""
+"""Streamlit interface for Budget-Constrained Self-Corrective RAG."""
 
 import json
 import sys
-import time
 from pathlib import Path
 
 import streamlit as st
@@ -11,7 +10,6 @@ sys.path.append(str(Path(__file__).parent))
 
 from src.config.config import Config
 from src.document_ingestion.document_processor import DocumentProcessor
-from src.graph_builder.graph_builder import GraphBuilder
 from src.research.crag import (
     CRAGPipeline,
     Policy,
@@ -43,21 +41,19 @@ st.markdown(
 
 
 def init_session_state() -> None:
-    if "rag_system" not in st.session_state:
-        st.session_state.rag_system = None
-    if "research_pipeline" not in st.session_state:
-        st.session_state.research_pipeline = None
+    if "crag_pipeline" not in st.session_state:
+        st.session_state.crag_pipeline = None
     if "initialized" not in st.session_state:
         st.session_state.initialized = False
-    if "history" not in st.session_state:
-        st.session_state.history = []
     if "evaluation_results" not in st.session_state:
         st.session_state.evaluation_results = None
+    if "latest_research_result" not in st.session_state:
+        st.session_state.latest_research_result = None
 
 
 @st.cache_resource
-def initialize_rag():
-    """Initialize the existing RAG components once per Streamlit process."""
+def initialize_crag():
+    """Initialize the CRAG pipeline and shared vector index once per process."""
     try:
         llm = Config.get_llm()
         doc_processor = DocumentProcessor(
@@ -69,12 +65,10 @@ def initialize_rag():
         vector_store.create_vectorstore(documents)
 
         retriever = vector_store.get_retriever()
-        graph_builder = GraphBuilder(retriever=retriever, llm=llm)
-        graph_builder.build()
-        return graph_builder, len(documents), CRAGPipeline(retriever, llm)
+        return CRAGPipeline(retriever, llm), len(documents)
     except Exception as exc:
         st.error(f"Failed to initialize: {exc}")
-        return None, 0, None
+        return None, 0
 
 
 def show_documents(documents, citation_documents=None) -> None:
@@ -103,42 +97,20 @@ def show_documents(documents, citation_documents=None) -> None:
             st.write(document.page_content)
 
 
-def render_chat() -> None:
-    st.subheader("Document Search")
-    st.caption("Ask the existing RAG agent about the indexed documents.")
-    with st.form("search_form"):
-        question = st.text_input("Enter your question:", placeholder="What would you like to know?")
-        submitted = st.form_submit_button("Search")
-
-    if submitted and question.strip():
-        with st.spinner("Searching..."):
-            started = time.perf_counter()
-            result = st.session_state.rag_system.run(question)
-            elapsed = time.perf_counter() - started
-        st.session_state.history.append(
-            {"question": question, "answer": result["answer"], "time": elapsed}
-        )
-        st.markdown("### Answer")
-        st.success(result["answer"])
-        with st.expander("Source documents"):
-            show_documents(result["retrieved_docs"])
-        st.caption(f"Response time: {elapsed:.2f} seconds")
-
-    if st.session_state.history:
-        st.markdown("### Recent Searches")
-        for item in reversed(st.session_state.history[-3:]):
-            st.markdown(f"**Q:** {item['question']}")
-            st.markdown(f"**A:** {item['answer'][:200]}")
-            st.caption(f"Time: {item['time']:.2f}s")
-
-
-def render_research_dashboard() -> None:
+def render_crag_dashboard() -> None:
     st.subheader("Budget-Constrained CRAG")
     st.caption(
         "Each submitted question has an independent correction counter. "
         "The rate-limited policy allows one local query rewrite and one web search."
     )
-    policy = st.selectbox("Evaluation policy", [item.value for item in Policy], key="research_policy")
+    policies = [item.value for item in Policy]
+    rate_limited_index = policies.index(Policy.RATE_LIMITED_CRAG.value)
+    policy = st.selectbox(
+        "Retrieval policy",
+        policies,
+        index=rate_limited_index,
+        key="research_policy",
+    )
     with st.form("research_form"):
         question = st.text_input(
             "Research question",
@@ -148,7 +120,7 @@ def render_research_dashboard() -> None:
 
     if submitted and question.strip():
         with st.spinner(f"Running {policy}..."):
-            result = st.session_state.research_pipeline.run(question, Policy(policy))
+            result = st.session_state.crag_pipeline.run(question, Policy(policy))
         st.session_state.latest_research_result = result
 
     result = st.session_state.get("latest_research_result")
@@ -213,7 +185,7 @@ def render_evaluation() -> None:
     if st.button("Run comparative evaluation", key="run_evaluation"):
         with st.spinner("Evaluating all policies; this may take several minutes..."):
             st.session_state.evaluation_results = evaluate_policies(
-                st.session_state.research_pipeline, cases
+                st.session_state.crag_pipeline, cases
             )
 
     results = st.session_state.evaluation_results
@@ -282,22 +254,17 @@ def main() -> None:
 
     if not st.session_state.initialized:
         with st.spinner("Loading documents and models..."):
-            rag_system, chunk_count, research_pipeline = initialize_rag()
-        if rag_system and research_pipeline:
-            st.session_state.rag_system = rag_system
-            st.session_state.research_pipeline = research_pipeline
+            crag_pipeline, chunk_count = initialize_crag()
+        if crag_pipeline:
+            st.session_state.crag_pipeline = crag_pipeline
             st.session_state.initialized = True
             st.success(f"System ready — {chunk_count} document chunks indexed.")
         else:
             return
 
-    chat_tab, research_tab, evaluation_tab = st.tabs(
-        ["Document Search", "CRAG Research", "Evaluation"]
-    )
-    with chat_tab:
-        render_chat()
-    with research_tab:
-        render_research_dashboard()
+    ask_tab, evaluation_tab = st.tabs(["Ask a Question", "Evaluation"])
+    with ask_tab:
+        render_crag_dashboard()
     with evaluation_tab:
         render_evaluation()
 

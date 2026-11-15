@@ -1,4 +1,4 @@
-"""Configuration module for Agentic RAG system"""
+"""Configuration module for Budget-Constrained Self-Corrective RAG."""
 
 import os
 from dotenv import load_dotenv

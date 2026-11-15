@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import List, Union
 
-os.environ.setdefault("USER_AGENT", "AgenticRAG/0.1")
+os.environ.setdefault("USER_AGENT", "BudgetCRAG/0.1")
 
 from langchain_community.document_loaders import (
     WebBaseLoader,
@@ -12,7 +12,7 @@ from langchain_community.document_loaders import (
     TextLoader,
     PyPDFDirectoryLoader,
 )
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class DocumentProcessor:
