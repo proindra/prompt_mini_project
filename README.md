@@ -97,17 +97,15 @@ uv run streamlit run streamlit_app.py
 
 Open the local URL printed by Streamlit (usually `http://localhost:8501`). The
 first initialization may take longer while the embedding model is downloaded
-and the document index is built. Submit a question in the Ask a Question tab;
-the app shows the answer, evidence, and correction trace.
+and the document index is built. Submit a question; the app follows the strict
+retrieval flow and shows its answer, evidence citations, and trace. Each result
+then feeds the Evaluation Dashboard, which summarizes actual questions asked
+during the current app session.
 
-The **Ask a Question** tab always runs the strict CRAG pipeline and shows
-evidence grades, local and web sources, query-rewrite history, routing trace,
-correction count, and timing.
-
-The **Evaluation** tab runs the versioned sample dataset in
-`data/evaluation_dataset.json` through the same strict CRAG pipeline. This
-makes live Groq calls (and may make Wikipedia calls). It displays answer token
-F1 when a reference answer is supplied, LLM-judged answer support, evidence
+The **Run versioned dataset evaluation** expander runs
+`data/evaluation_dataset.json` through the same strict pipeline. This makes
+live Groq calls (and may make Wikipedia calls). It displays answer token F1
+when a reference answer is supplied, LLM-judged answer support, evidence
 sufficiency, retrieval and web-call counts, correction use, latency,
 abstention, and correction success. Results can be downloaded as JSON. No
 evaluation scores are pre-filled or claimed in advance.
@@ -150,7 +148,7 @@ through the strict pipeline, and offers an interactive prompt. Type `quit`,
 
 ```mermaid
 flowchart TD
-    Q[User question] --> UI{App tab}
+    Q[User Question] --> RET1[Initial Local Retrieval]
 
     subgraph SharedIndex[Shared local-first document index]
         SRC[Configured web pages and PDFs in data]
@@ -160,32 +158,30 @@ flowchart TD
         SRC --> PROC --> EMB --> V
     end
 
-    UI -->|Ask a Question| RET1[Initial local retrieval]
     RET1 --> V
-    V --> GRADE1[Evidence grader]
-    GRADE1 -->|Sufficient| GEN[Generate grounded answer]
-    GRADE1 -->|Insufficient| BUDGET[Correction budget: max 2]
+    V --> GRADE1[Evidence Grader]
+    GRADE1 -->|Sufficient| GEN[Generate Grounded Answer]
+    GRADE1 -->|Insufficient| BUDGET[Correction Budget: max 2]
     BUDGET --> ATTEMPT1[Attempt 1]
-    ATTEMPT1 --> REWRITE[Rewrite query]
-    REWRITE --> RET2[Local retrieval again]
+    ATTEMPT1 --> REWRITE[Rewrite Query]
+    REWRITE --> RET2[Local Retrieval Again]
     RET2 --> V
-    V --> GRADE2[Re-evaluate evidence]
+    V --> GRADE2[Re-evaluate Evidence]
     GRADE2 -->|Sufficient| GEN
-    GRADE2 -->|Insufficient| ATTEMPT2[Attempt 2: web search]
-    ATTEMPT2 --> WEB[Wikipedia API]
-    WEB --> MERGE[Merge local and web evidence]
-    MERGE --> GRADE3[Validate merged evidence]
-    GRADE3 -->|Sufficient| GEN
-    GRADE3 -->|Insufficient or conflicting| ABSTAIN
+    GRADE2 -->|Insufficient| ATTEMPT2[Attempt 2: Web Search]
+    ATTEMPT2 --> MERGE[Merge and Validate Evidence]
+    MERGE -->|Sufficient| GEN
+    MERGE -->|No reliable evidence| ABSTAIN[Abstain]
 
-    GEN --> RESULT[Answer, citations, metrics, and trace]
+    GEN --> RESULT[Answer + Citations + Trace]
     ABSTAIN --> RESULT
-    RESULT --> DASH[Answer, citations, trace, and metrics]
-    UI -->|Evaluation tab| EVAL[Evaluation dashboard]
+    RESULT --> EVAL[Evaluation Dashboard]
 ```
 
 The Streamlit app and CLI both use the same strict CRAG pipeline and in-memory
-FAISS index. The app exposes the question-answering and evaluation dashboards.
+FAISS index. Every displayed answer, evidence set, and trace feeds the
+session-level Evaluation Dashboard. A separate versioned-dataset evaluation
+is available in the app for reference-answer metrics.
 
 ### Research request flow
 
@@ -204,9 +200,10 @@ FAISS index. The app exposes the question-answering and evaluation dashboards.
    citations; insufficient or contradictory evidence produces an abstention.
    The response includes sources, routing trace, and measured timing/count
    metrics.
-5. **Evaluate the pipeline.** The Evaluation tab runs the versioned question
-   set through this same strict pipeline and presents measured outcomes; it
-   does not display fabricated or pre-filled results.
+5. **Evaluate the output.** Each answer, citation set, trace, and metric is
+   added to the session-level Evaluation Dashboard. The versioned dataset
+   evaluation is available separately and reports measured outcomes without
+   fabricated or pre-filled results.
 
 The CLI entry point is `main.py`. Streamlit setup and dashboards are in
 `streamlit_app.py`. The strict retrieval flow, evidence grading, traces, and

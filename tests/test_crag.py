@@ -48,6 +48,47 @@ class FakeRetriever:
 
 
 class CRAGPipelineTests(unittest.TestCase):
+    def test_initial_sufficient_evidence_generates_without_corrections(self):
+        web_calls = []
+        pipeline = CRAGPipeline(
+            FakeRetriever(),
+            FakeLLM([True]),
+            web_search=lambda query: web_calls.append(query) or [],
+        )
+
+        result = pipeline.run("question")
+
+        self.assertFalse(result["abstained"])
+        self.assertEqual(result["metrics"]["correction_count"], 0)
+        self.assertEqual(result["metrics"]["web_search_calls"], 0)
+        self.assertEqual(web_calls, [])
+        self.assertEqual(
+            [step["step"] for step in result["trace"]],
+            ["initial_retrieval", "final"],
+        )
+
+    def test_rewritten_local_evidence_sufficient_skips_web_search(self):
+        pipeline = CRAGPipeline(
+            FakeRetriever(),
+            FakeLLM([False, True]),
+            web_search=lambda query: self.fail(f"No web search expected: {query}"),
+        )
+
+        result = pipeline.run("question")
+
+        self.assertFalse(result["abstained"])
+        self.assertEqual(result["metrics"]["correction_count"], 1)
+        self.assertEqual(result["metrics"]["web_search_calls"], 0)
+        self.assertEqual(
+            [step["step"] for step in result["trace"]],
+            [
+                "initial_retrieval",
+                "correction_attempt_1",
+                "local_retrieval_after_rewrite",
+                "final",
+            ],
+        )
+
     def test_pipeline_stops_after_two_corrections(self):
         retriever = FakeRetriever()
         web_calls = []
@@ -67,6 +108,8 @@ class CRAGPipelineTests(unittest.TestCase):
         self.assertEqual(len(web_calls), 1)
         self.assertEqual(result["metrics"]["correction_budget_utilization"], 1)
         self.assertFalse(result["abstained"])
+        self.assertEqual(result["trace"][-2]["step"], "final_evidence_evaluation")
+        self.assertEqual(result["trace"][-1]["action"], "GENERATE")
 
     def test_pipeline_abstains_when_web_search_fails(self):
         retriever = FakeRetriever()
@@ -78,7 +121,7 @@ class CRAGPipelineTests(unittest.TestCase):
 
         pipeline = CRAGPipeline(
             retriever,
-            FakeLLM([False, False]),
+            FakeLLM([False, False, False]),
             web_search=fail_search,
         )
 
@@ -87,7 +130,9 @@ class CRAGPipelineTests(unittest.TestCase):
         self.assertTrue(result["abstained"])
         self.assertEqual(result["metrics"]["correction_count"], 2)
         self.assertEqual(result["metrics"]["web_search_calls"], 1)
-        self.assertEqual(result["trace"][-2]["evidence_status"], "UNAVAILABLE")
+        self.assertEqual(result["trace"][-3]["evidence_status"], "UNAVAILABLE")
+        self.assertEqual(result["trace"][-2]["step"], "final_evidence_evaluation")
+        self.assertEqual(result["trace"][-2]["evidence_status"], "INSUFFICIENT")
 
     def test_empty_evidence_runs_both_attempts_then_abstains(self):
         pipeline = CRAGPipeline(

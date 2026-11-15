@@ -81,16 +81,17 @@ class CRAGPipeline:
                             "document_count": len(web_docs),
                         }
                     )
-                    combined_docs = self._deduplicate_documents(local_docs + web_docs)
-                    grade = self.grade_evidence(question, combined_docs)
-                    trace.append(
-                        self._grade_trace(
-                            "final_evidence_evaluation", grade, len(combined_docs)
-                        )
-                    )
-                    sufficient = grade["sufficient"]
                 finally:
                     metrics["web_search_latency_seconds"] += time.perf_counter() - web_started
+
+                combined_docs = self._deduplicate_documents(local_docs + web_docs)
+                grade = self.grade_evidence(question, combined_docs)
+                trace.append(
+                    self._grade_trace(
+                        "final_evidence_evaluation", grade, len(combined_docs)
+                    )
+                )
+                sufficient = grade["sufficient"]
 
         evidence_docs = self._deduplicate_documents(local_docs + web_docs)
         answer = "I can't answer this from the available evidence."
@@ -104,9 +105,7 @@ class CRAGPipeline:
         trace.append(
             {
                 "step": "final",
-                "evidence_status": (
-                    grade["status"] if grade else ("SUFFICIENT" if sufficient else "INSUFFICIENT")
-                ),
+                "evidence_status": grade["status"],
                 "action": action,
                 "correction_count": metrics["correction_count"],
             }

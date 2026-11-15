@@ -48,6 +48,8 @@ def init_session_state() -> None:
         st.session_state.evaluation_results = None
     if "latest_research_result" not in st.session_state:
         st.session_state.latest_research_result = None
+    if "research_history" not in st.session_state:
+        st.session_state.research_history = []
 
 
 @st.cache_resource
@@ -113,6 +115,16 @@ def render_crag_dashboard() -> None:
         with st.spinner("Running the two-attempt CRAG pipeline..."):
             result = st.session_state.crag_pipeline.run(question)
         st.session_state.latest_research_result = result
+        st.session_state.research_history.append(
+            {
+                "question": result["question"],
+                "answer": result["answer"],
+                "abstained": result["abstained"],
+                "evidence_grade": result["evidence_grade"],
+                "trace": result["trace"],
+                "metrics": result["metrics"].copy(),
+            }
+        )
 
     result = st.session_state.get("latest_research_result")
     if not result:
@@ -127,14 +139,6 @@ def render_crag_dashboard() -> None:
         f"Pipeline: {result['pipeline']} · "
         f"Abstained: {'Yes' if result['abstained'] else 'No'}"
     )
-
-    metrics = result["metrics"]
-    columns = st.columns(5)
-    columns[0].metric("Corrections", f"{metrics['correction_count']} / {metrics['correction_budget']}")
-    columns[1].metric("Local retrievals", metrics["retrieval_attempts"])
-    columns[2].metric("Web searches", metrics["web_search_calls"])
-    columns[3].metric("Latency", f"{metrics['total_latency_seconds']:.2f}s")
-    columns[4].metric("Budget used", f"{metrics['correction_budget_utilization']:.0%}")
 
     grade = result["evidence_grade"]
     st.markdown("**Final evidence grading:** " + grade["status"])
@@ -154,13 +158,84 @@ def render_crag_dashboard() -> None:
         {
             "query_rewrites": result["query_history"],
             "steps": result["trace"],
-            "metrics": metrics,
+            "metrics": result["metrics"],
         }
     )
 
+    render_evaluation_dashboard(st.session_state.research_history)
 
-def render_evaluation() -> None:
-    st.subheader("Evaluation Dashboard")
+
+def render_evaluation_dashboard(history) -> None:
+    st.markdown("### Evaluation Dashboard")
+    total = len(history)
+    if not total:
+        st.info("Submit a question to populate the dashboard with actual pipeline results.")
+        return
+
+    answered = [run for run in history if not run["abstained"]]
+    corrected = [run for run in history if run["metrics"]["correction_count"] > 0]
+    correction_successes = [
+        run for run in corrected if run["evidence_grade"]["sufficient"]
+    ]
+    columns = st.columns(5)
+    columns[0].metric("Questions", total)
+    columns[1].metric(
+        "Evidence-sufficient answers",
+        f"{len(answered)} ({len(answered) / total:.0%})",
+    )
+    columns[2].metric(
+        "Mean latency",
+        f"{sum(run['metrics']['total_latency_seconds'] for run in history) / total:.2f}s",
+    )
+    columns[3].metric(
+        "Local retrievals",
+        sum(run["metrics"]["retrieval_attempts"] for run in history),
+    )
+    columns[4].metric(
+        "Web searches",
+        sum(run["metrics"]["web_search_calls"] for run in history),
+    )
+
+    correction_rate = (
+        len(correction_successes) / len(corrected) if corrected else None
+    )
+    st.metric(
+        "Correction success rate",
+        f"{correction_rate:.0%}" if correction_rate is not None else "N/A",
+        help="Among questions that used at least one correction, the share ending with sufficient evidence.",
+    )
+    st.dataframe(
+        [
+            {
+                "question": run["question"],
+                "answer": run["answer"],
+                "trace": " | ".join(
+                    f"{step['step']}: "
+                    f"{step.get('evidence_status', step.get('action', 'unknown'))}"
+                    for step in run["trace"]
+                ),
+                "final_evidence": run["evidence_grade"]["status"],
+                "action": "ABSTAIN" if run["abstained"] else "GENERATE",
+                "corrections": (
+                    f"{run['metrics']['correction_count']} / "
+                    f"{run['metrics']['correction_budget']}"
+                ),
+                "local_retrievals": run["metrics"]["retrieval_attempts"],
+                "web_searches": run["metrics"]["web_search_calls"],
+                "latency_seconds": run["metrics"]["total_latency_seconds"],
+            }
+            for run in history
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "These session metrics summarize actual questions processed by the strict pipeline. "
+        "Answer correctness is measured separately in the reference-dataset evaluation."
+    )
+
+
+def render_dataset_evaluation() -> None:
     dataset_path = Path(__file__).parent / "data" / "evaluation_dataset.json"
     cases = load_evaluation_dataset(str(dataset_path))
     st.caption(
@@ -251,11 +326,9 @@ def main() -> None:
         else:
             return
 
-    ask_tab, evaluation_tab = st.tabs(["Ask a Question", "Evaluation"])
-    with ask_tab:
-        render_crag_dashboard()
-    with evaluation_tab:
-        render_evaluation()
+    render_crag_dashboard()
+    with st.expander("Run versioned dataset evaluation"):
+        render_dataset_evaluation()
 
 
 if __name__ == "__main__":
